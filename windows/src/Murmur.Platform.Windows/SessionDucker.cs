@@ -39,16 +39,14 @@ public sealed class SessionDucker : IAudioDucker
         lock (_lock) RecoverInterruptedMute();
     }
 
-    /// <summary>A session whose peak meter reads above this was audibly playing.</summary>
-    private const float AudiblePeak = 0.01f;
-
     /// <inheritdoc />
-    public bool Duck()
+    public (float Peak, string? Source) Duck()
     {
         lock (_lock)
         {
-            if (_device is not null) return false;
-            var playing = false;
+            if (_device is not null) return (0, null);
+            var peak = 0f;
+            string? source = null;
             try
             {
                 // Never overwrite an outstanding restoration record.
@@ -56,10 +54,10 @@ public sealed class SessionDucker : IAudioDucker
                 if (File.Exists(_recoveryPath))
                 {
                     PlatformDiagnostics.Warn("audio not ducked: a previous restoration is still pending");
-                    return false;
+                    return (0, null);
                 }
                 using var enumerator = new MMDeviceEnumerator();
-                if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)) return false;
+                if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)) return (0, null);
                 _device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
                 var sessions = _device.AudioSessionManager.Sessions;
                 var record = new List<string>();
@@ -76,10 +74,14 @@ public sealed class SessionDucker : IAudioDucker
                         continue;
                     }
                     // Read before muting: a muted session's meter drops to zero at once.
-                    if (session.State == AudioSessionState.AudioSessionStateActive &&
-                        session.AudioMeterInformation.MasterPeakValue > AudiblePeak)
+                    if (session.State == AudioSessionState.AudioSessionStateActive)
                     {
-                        playing = true;
+                        var level = session.AudioMeterInformation.MasterPeakValue;
+                        if (level > peak)
+                        {
+                            peak = level;
+                            source = ProcessNameOf(session.GetProcessID);
+                        }
                     }
                     _ducked.Add(session);
                     record.Add(session.GetSessionInstanceIdentifier);
@@ -104,10 +106,16 @@ public sealed class SessionDucker : IAudioDucker
             {
                 PlatformDiagnostics.Warn($"could not mute other audio: {e.Message}");
                 RestoreLocked();
-                return false;
+                return (0, null);
             }
-            return playing;
+            return (peak, source);
         }
+    }
+
+    private static string? ProcessNameOf(uint processId)
+    {
+        try { return System.Diagnostics.Process.GetProcessById((int)processId).ProcessName; }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException) { return null; }
     }
 
     /// <inheritdoc />

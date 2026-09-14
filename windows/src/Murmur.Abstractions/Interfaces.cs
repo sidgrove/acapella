@@ -273,11 +273,12 @@ public interface IAudioDucker
 {
     /// <summary>Mutes other applications' playback and remembers their mute states.</summary>
     /// <returns>
-    /// True if something was audibly playing at the moment it was muted. The engine uses
-    /// this to discard the pre-roll: audio kept from before the key press was recorded
-    /// while that playback was still at full volume, and it would be transcribed as words.
+    /// The loudest peak level (0…1) among the sessions muted, read just before muting, and
+    /// the name of the process playing it. Zero when nothing was playing. The engine uses
+    /// the level to decide whether to discard the pre-roll: audio kept from before the key
+    /// press was recorded while that playback was still at full volume.
     /// </returns>
-    bool Duck();
+    (float Peak, string? Source) Duck();
 
     /// <summary>Restores the mute states saved by <see cref="Duck"/>.</summary>
     void Restore();

@@ -129,7 +129,7 @@ public sealed class DictationEngine : IAsyncDisposable
         public Task? CaptureLoop;
 
         /// <summary>
-        /// Other apps were audibly playing until the key press muted them, so the pre-roll
+        /// Other apps were playing loudly until the key press muted them, so the pre-roll
         /// is their sound, not the user's, and the final pass discards it.
         /// </summary>
         public bool OtherAudioWasPlaying;
@@ -573,8 +573,11 @@ public sealed class DictationEngine : IAsyncDisposable
                         if (_isEnabled && _duckAudio && !_ducked && Ducker is { } ducker)
                         {
                             _ducked = true;
-                            session.OtherAudioWasPlaying = ducker.Duck();
-                            Log.Info(session.OtherAudioWasPlaying ? "other audio ducked (it was playing)" : "other audio ducked");
+                            var (peak, source) = ducker.Duck();
+                            session.OtherAudioWasPlaying = peak >= LoudPlaybackPeak;
+                            Log.Info(peak > 0
+                                ? $"other audio ducked (peak {peak:0.00} from {source ?? "unknown"}{(session.OtherAudioWasPlaying ? ", loud enough to drop the pre-roll" : string.Empty)})"
+                                : "other audio ducked");
                         }
                     }
                 }
@@ -888,6 +891,19 @@ public sealed class DictationEngine : IAsyncDisposable
     /// </summary>
     public const float SilenceFloor = 0.002f;
 
+    /// <summary>
+    /// Playback peaking at or above this when the key was pressed is loud enough to have
+    /// reached the microphone, so the pre-roll recorded under it is discarded.
+    /// </summary>
+    /// <remarks>
+    /// Any "active session with signal" test was wrong: on a studio machine a mixer or a
+    /// loopback keeps a session active at a few percent all day, and on 2026-09-14 that
+    /// dropped the pre-roll on every single dictation — the first-word loss came straight
+    /// back. Speech and video at listening volume peak well above this; a resting mixer
+    /// does not. The level and source are logged on every recording for calibration.
+    /// </remarks>
+    public const float LoudPlaybackPeak = 0.2f;
+
     private async Task ProcessAsync(Session session)
     {
         var samples = session.Buffer;
@@ -906,7 +922,7 @@ public sealed class DictationEngine : IAsyncDisposable
                 session.Committed.Clear();
                 session.CommittedSamples = 0;
             }
-            Log.Info($"dropped {session.PreRoll.TotalSeconds:0.0}s of pre-roll: other audio was playing");
+            Log.Info($"dropped {session.PreRoll.TotalSeconds:0.0}s of pre-roll: other audio was playing loudly");
             session.PreRoll = TimeSpan.Zero;
         }
 

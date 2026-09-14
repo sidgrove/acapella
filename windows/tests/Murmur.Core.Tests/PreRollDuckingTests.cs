@@ -33,13 +33,13 @@ public sealed class PreRollDuckingTests
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
     }
 
-    private static async Task<int> FinalDecodeLengthAsync(bool playing)
+    private static async Task<int> FinalDecodeLengthAsync(float peak)
     {
         var hotkey = new FakeHotkeySource();
         var capture = new PreRollCapture();
         var transcriber = new FakeTranscriber("hello");
         await transcriber.LoadAsync(CancellationToken.None);
-        var ducker = new FakeAudioDucker { Playing = playing };
+        var ducker = new FakeAudioDucker { Peak = peak };
 
         await using var engine = new DictationEngine(capture, hotkey, transcriber, new RecordingTextInjector(), () => [])
         {
@@ -54,17 +54,29 @@ public sealed class PreRollDuckingTests
         return transcriber.SegmentLengths[^1];
     }
 
+    private static int All => (int)(TotalSeconds * AudioChunk.SampleRate);
+    private static int WithoutPreRoll => All - (int)(PreRollSeconds * AudioChunk.SampleRate);
+
     [Fact]
-    public async Task Pre_roll_is_dropped_when_other_audio_was_playing()
+    public async Task Pre_roll_is_dropped_when_other_audio_was_playing_loudly()
     {
-        var decoded = await FinalDecodeLengthAsync(playing: true);
-        decoded.ShouldBe((int)(TotalSeconds * AudioChunk.SampleRate) - (int)(PreRollSeconds * AudioChunk.SampleRate), "the video's 400 ms must not reach the model");
+        var decoded = await FinalDecodeLengthAsync(peak: 0.6f);
+        decoded.ShouldBe(WithoutPreRoll, "the video's 400 ms must not reach the model");
     }
 
     [Fact]
     public async Task Pre_roll_is_kept_when_the_room_was_quiet()
     {
-        var decoded = await FinalDecodeLengthAsync(playing: false);
-        decoded.ShouldBe((int)(TotalSeconds * AudioChunk.SampleRate), "a first word spoken as the key lands is kept");
+        var decoded = await FinalDecodeLengthAsync(peak: 0f);
+        decoded.ShouldBe(All, "a first word spoken as the key lands is kept");
+    }
+
+    [Fact]
+    public async Task Pre_roll_is_kept_over_a_resting_mixer()
+    {
+        // A studio machine keeps a session active at a few percent all day. That is not a
+        // video; dropping the pre-roll for it loses the first word of every dictation.
+        var decoded = await FinalDecodeLengthAsync(peak: 0.05f);
+        decoded.ShouldBe(All);
     }
 }

@@ -230,14 +230,14 @@ public sealed class FakeAudioDucker : IAudioDucker
     /// <summary>Every call, in order: "duck" or "restore".</summary>
     public List<string> Calls { get; } = [];
 
-    /// <summary>What <see cref="Duck"/> reports: whether other audio was audibly playing.</summary>
-    public bool Playing { get; set; }
+    /// <summary>What <see cref="Duck"/> reports: the loudest other playback, 0…1.</summary>
+    public float Peak { get; set; }
 
     /// <inheritdoc />
-    public bool Duck()
+    public (float Peak, string? Source) Duck()
     {
         Calls.Add("duck");
-        return Playing;
+        return (Peak, Peak > 0 ? "fake" : null);
     }
 
     /// <inheritdoc />
