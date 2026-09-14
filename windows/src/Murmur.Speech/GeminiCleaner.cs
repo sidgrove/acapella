@@ -115,14 +115,29 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
                 : null;
 
     /// <inheritdoc />
-    public async Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
+    public Task<string?> CleanAsync(string text, CancellationToken cancellationToken) => CleanAsync(text, null, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<string?> CleanAsync(string text, string? precedingCleaned, CancellationToken cancellationToken)
     {
         var key = ResolveKey(_apiKey());
         if (key is null || string.IsNullOrWhiteSpace(text)) return null;
 
+        // A continuation is framed so the model neither repeats the earlier text nor treats
+        // the join as a sentence boundary. The plausibility guard in Core catches a model
+        // that repeats the context anyway: the word count balloons and the result is dropped.
+        var input = string.IsNullOrWhiteSpace(precedingCleaned)
+            ? text
+            : "<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n"
+              + precedingCleaned.Trim()
+              + "\n<<end of earlier part>>\n\n"
+              + "Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence, "
+              + "so add a capital letter or full stop at the join only if the words call for one.\n"
+              + text;
+
         var request = new GenerateRequest(
             SystemInstruction: new Content([new Part(Prompt(_customInstructions()))]),
-            Contents: [new Content([new Part(text)])],
+            Contents: [new Content([new Part(input)])],
             // No output cap: a fixed 2048 tokens cut a ten-minute dictation off at the
             // knees and, because 80% of the text still looked plausible, the truncated
             // version was typed. The model's own limit is far above any dictation.

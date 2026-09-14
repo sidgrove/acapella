@@ -294,11 +294,22 @@ public interface ITranscriptCleaner
     /// <summary>Cleans <paramref name="text"/>, or returns null if it could not.</summary>
     Task<string?> CleanAsync(string text, CancellationToken cancellationToken);
 
-    /// <summary>Why the most recent <see cref="CleanAsync"/> returned null, for the log. Null when it succeeded.</summary>
+    /// <summary>
+    /// Cleans <paramref name="text"/>, the continuation of a dictation whose earlier part has
+    /// already been cleaned to <paramref name="precedingCleaned"/>. Only the continuation is
+    /// returned; the earlier text is context for names, tense and sentences that carry on.
+    /// </summary>
+    /// <remarks>
+    /// This is what lets a long dictation be cleaned while it is still being spoken, so the
+    /// wait after the key-up is for the last few seconds of speech, not for all of it.
+    /// </remarks>
+    Task<string?> CleanAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) => CleanAsync(text, cancellationToken);
+
+    /// <summary>Why the most recent <see cref="CleanAsync(string, CancellationToken)"/> returned null, for the log. Null when it succeeded.</summary>
     string? LastError => null;
 
     /// <summary>
-    /// Opens whatever connection <see cref="CleanAsync"/> will need, so the round trip after
+    /// Opens whatever connection <see cref="CleanAsync(string, CancellationToken)"/> will need, so the round trip after
     /// the key is released does not also pay for a TCP and TLS handshake.
     /// </summary>
     /// <remarks>Called when recording starts. Must never throw; failures are for the log.</remarks>

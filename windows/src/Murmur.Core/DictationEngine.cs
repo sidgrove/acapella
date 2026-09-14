@@ -128,8 +128,25 @@ public sealed class DictationEngine : IAsyncDisposable
         public Task? Preview;
         public Task? CaptureLoop;
 
+        /// <summary>
+        /// Audio the preview loop has already decoded and frozen, oldest first. The final
+        /// transcription reuses this text and decodes only what came after
+        /// <see cref="CommittedSamples"/>. Guarded by <c>_bufferLock</c>.
+        /// </summary>
+        public readonly List<CommittedPiece> Committed = [];
+        public int CommittedSamples;
+
         public void Dispose() => Stop.Dispose();
     }
+
+    /// <summary>A stretch of the recording whose transcript will not change.</summary>
+    /// <param name="EndSample">Where in the buffer it ends.</param>
+    /// <param name="Raw">Its transcript.</param>
+    /// <param name="Clean">Its clean-up, started while the user was still talking; null when the AI tier is off.</param>
+    private sealed record CommittedPiece(int EndSample, string Raw, Task<SegmentClean?>? Clean);
+
+    /// <summary>The cleaned form of one committed piece, plus everything cleaned before it.</summary>
+    private sealed record SegmentClean(string Local, string Cleaned, IReadOnlyList<AppliedCorrection> Applied, string CleanedSoFar);
 
     /// <summary>The recording in progress, or null. Written only under <see cref="_bufferLock"/>.</summary>
     private Session? _current;
@@ -698,6 +715,18 @@ public sealed class DictationEngine : IAsyncDisposable
                 {
                     var frozen = (await _transcriber.TranscribeAsync(toCommit, [], cancellationToken).ConfigureAwait(false)).Trim();
                     if (frozen.Length > 0) committed = committed.Length == 0 ? frozen : committed + " " + frozen;
+
+                    // Recorded for the final pass, which then decodes only what follows.
+                    // Clean-up of the piece starts now, while the user is still talking, so
+                    // the wait after key-up covers the last window of speech only.
+                    lock (_bufferLock)
+                    {
+                        var previous = session.Committed.Count > 0 ? session.Committed[^1].Clean : null;
+                        var cleaner = AiCleanup ? Cleaner : null;
+                        var job = cleaner is null || frozen.Length == 0 ? null : CleanSegmentAsync(frozen, previous, cleaner);
+                        session.Committed.Add(new CommittedPiece(committedSamples, frozen, job));
+                        session.CommittedSamples = committedSamples;
+                    }
                 }
 
                 var text = await _transcriber.TranscribeAsync(snapshot, [], cancellationToken).ConfigureAwait(false);
@@ -725,6 +754,50 @@ public sealed class DictationEngine : IAsyncDisposable
         Preview = text;
         PreviewChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// Runs the dictionary, the rules and the AI tier over one committed piece, with the
+    /// pieces before it as context. Null means the AI tier could not clean it, in which
+    /// case the final pass cleans the whole dictation in one go, as it always did.
+    /// </summary>
+    private async Task<SegmentClean?> CleanSegmentAsync(string raw, Task<SegmentClean?>? previous, ITranscriptCleaner cleaner)
+    {
+        try
+        {
+            var soFar = string.Empty;
+            if (previous is not null)
+            {
+                var before = await previous.ConfigureAwait(false);
+                if (before is null) return null;
+                soFar = before.CleanedSoFar;
+            }
+
+            var (text, applied) = new DictionaryCorrector(_dictionary()).Apply(raw);
+            var local = SpokenFormatting.Apply(text, SpokenCommands, RemoveFillers);
+
+            string cleaned;
+            if (string.IsNullOrWhiteSpace(local)) cleaned = string.Empty;
+            else if (!CleanupGuard.IsWorthCleaning(local)) cleaned = local;
+            else
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var reply = await cleaner.CleanAsync(local, soFar.Length > 0 ? soFar : null, CancellationToken.None).ConfigureAwait(false);
+                Log.Info($"AI clean-up of a {local.Length}-char piece during recording: {clock.ElapsedMilliseconds} ms");
+                if (reply is null || !CleanupGuard.IsPlausible(local, reply)) return null;
+                cleaned = reply;
+            }
+
+            return new SegmentClean(local, cleaned, applied, JoinText(soFar, cleaned));
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"clean-up during recording failed: {e.Message}");
+            return null;
+        }
+    }
+
+    private static string JoinText(string first, string second) =>
+        first.Length == 0 ? second : second.Length == 0 ? first : first + " " + second;
 
     private async Task EndAsync()
     {
@@ -856,8 +929,17 @@ public sealed class DictationEngine : IAsyncDisposable
         var entries = _dictionary();
         var bias = DictionaryCorrector.BiasPhrases(entries);
 
-        var pieces = AudioSegmenter.Split(audio);
-        var transcripts = new List<string>(pieces.Count);
+        // Whatever the preview loop froze is final; only the audio after it is decoded now.
+        // On a two-minute dictation that turns three seconds of decoding into a fraction of one.
+        List<CommittedPiece> committed;
+        int committedSamples;
+        lock (_bufferLock)
+        {
+            committed = [.. session.Committed];
+            committedSamples = session.CommittedSamples;
+        }
+        var pieces = AudioSegmenter.Split(audio[committedSamples..]);
+        var tailTranscripts = new List<string>(pieces.Count);
 
         foreach (var piece in pieces)
         {
@@ -865,12 +947,14 @@ public sealed class DictationEngine : IAsyncDisposable
                 .TranscribeAsync(piece, bias, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            if (!string.IsNullOrWhiteSpace(text)) transcripts.Add(text.Trim());
+            if (!string.IsNullOrWhiteSpace(text)) tailTranscripts.Add(text.Trim());
         }
 
-        var raw = string.Join(' ', transcripts);
+        var tailRaw = string.Join(' ', tailTranscripts);
+        var raw = JoinText(string.Join(' ', committed.Select(c => c.Raw)), tailRaw);
         Log.Info($"transcribed {audio.Length / (double)AudioChunk.SampleRate:0.0}s of audio "
-               + $"in {(_clock.Now - releasedAt).TotalMilliseconds:0} ms: {raw.Length} chars");
+               + $"in {(_clock.Now - releasedAt).TotalMilliseconds:0} ms: {raw.Length} chars"
+               + (committedSamples > 0 ? $" ({committedSamples / (double)AudioChunk.SampleRate:0.0}s reused from the preview)" : string.Empty));
 
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -911,7 +995,41 @@ public sealed class DictationEngine : IAsyncDisposable
         string? cleanedBy = null;
         var cleanupFailed = false;
         var candidate = local;
-        if (AiCleanup && Cleaner is { } cleaner && CleanupGuard.IsWorthCleaning(local))
+
+        // Pieces frozen during a long recording were cleaned as they were spoken. If every
+        // one of them came back, only the tail is cleaned now, with the rest as context.
+        // Anything short of that falls through to the whole-dictation pass below.
+        if (AiCleanup && Cleaner is { } tailCleaner && !send && committed.Count > 0 && committed.All(c => c.Clean is not null))
+        {
+            var cleanupClock = System.Diagnostics.Stopwatch.StartNew();
+            var earlier = await Task.WhenAll(committed.Select(c => c.Clean!)).ConfigureAwait(false);
+            if (earlier.All(e => e is not null))
+            {
+                var soFar = earlier[^1]!.CleanedSoFar;
+                var (tailText, tailApplied) = new DictionaryCorrector(entries).Apply(tailRaw);
+                var tailLocal = SpokenFormatting.Apply(tailText, SpokenCommands, RemoveFillers);
+                string? tailCleaned;
+                if (string.IsNullOrWhiteSpace(tailLocal)) tailCleaned = string.Empty;
+                else if (!CleanupGuard.IsWorthCleaning(tailLocal)) tailCleaned = tailLocal;
+                else
+                {
+                    tailCleaned = await tailCleaner.CleanAsync(tailLocal, soFar, CancellationToken.None).ConfigureAwait(false);
+                    if (tailCleaned is not null && !CleanupGuard.IsPlausible(tailLocal, tailCleaned)) tailCleaned = null;
+                }
+
+                if (tailCleaned is not null)
+                {
+                    Log.Info($"AI clean-up: {cleanupClock.ElapsedMilliseconds} ms (tail of {tailLocal.Length} chars; {committed.Count} earlier piece(s) cleaned during recording)");
+                    local = JoinText(string.Join(' ', earlier.Select(e => e!.Local)), tailLocal);
+                    applied = [.. earlier.SelectMany(e => e!.Applied), .. tailApplied];
+                    candidate = JoinText(soFar, tailCleaned);
+                    cleanedBy = tailCleaner.Name;
+                }
+            }
+            if (cleanedBy is null) Log.Info("clean-up during recording did not complete; cleaning the whole dictation");
+        }
+
+        if (cleanedBy is null && AiCleanup && Cleaner is { } cleaner && CleanupGuard.IsWorthCleaning(local))
         {
             var cleanupClock = System.Diagnostics.Stopwatch.StartNew();
             var cleaned = await cleaner.CleanAsync(local, CancellationToken.None).ConfigureAwait(false);
