@@ -215,10 +215,13 @@ public sealed class ResilienceTests
         device.Push(2f);
         await recording;
 
-        (await Wait.UntilAsync(() => !device.IsCapturing)).ShouldBeTrue("released once the recording ended");
+        // Released once the recording ended, then reopened at once on the new device: the
+        // closed moment in between can be too brief to observe, so wait for the reopen.
+        (await Wait.UntilAsync(() => device.Opens == 2)).ShouldBeTrue("reopened once the recording ended");
+        (await Wait.UntilAsync(() => device.IsCapturing)).ShouldBeTrue();
         device.Push(3f);
         (await TakeAsync(warm, 1)).ShouldBe([3f]);
-        device.Opens.ShouldBe(2);
+        device.Opens.ShouldBe(2, "the recording used the reopened device, not a third one");
     }
 
     [Fact]
