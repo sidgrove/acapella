@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Platform;
 using Murmur.App.Controls;
 using Murmur.App.Design;
+using Murmur.Core;
 
 namespace Murmur.App.Views;
 
@@ -46,8 +47,13 @@ public abstract class ShellWindow : Window
     }
 
     /// <summary>Shows the standard keyboard window menu without changing custom chrome.</summary>
-    protected virtual void ShowSystemMenu() =>
-        PlatformFactory.CreateWindowMenu()?.Show(TryGetPlatformHandle()?.Handle ?? 0);
+    protected virtual void ShowSystemMenu()
+    {
+        var menu = PlatformFactory.CreateWindowMenu();
+        if (menu is null) return;
+        var chosen = menu.Show(TryGetPlatformHandle()?.Handle ?? 0);
+        Log.Info($"window menu: {(chosen != 0 ? $"command 0x{chosen:X}" : menu.LastError ?? "dismissed")}");
+    }
 
     /// <summary>
     /// Wraps <paramref name="body"/> beneath the caption strip. The strip sits on plain
