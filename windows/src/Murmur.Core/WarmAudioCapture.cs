@@ -37,10 +37,20 @@ namespace Murmur.Core;
 public sealed class WarmAudioCapture : IAudioCapture
 {
     /// <summary>How much audio from before the key press is included in a recording.</summary>
-    public static readonly TimeSpan DefaultPreRoll = TimeSpan.FromMilliseconds(400);
+    /// <remarks>
+    /// Long enough to cover a first word spoken as the fingers land on the keys. The model
+    /// also decodes a word better with some room tone in front of it.
+    /// </remarks>
+    public static readonly TimeSpan DefaultPreRoll = TimeSpan.FromMilliseconds(600);
 
     /// <summary>How long the microphone stays open after a recording with no new one.</summary>
-    public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(5);
+    /// <remarks>
+    /// Never, by default. A five-minute timeout meant nearly every real dictation was a cold
+    /// start, and a cold Elgato stream delivered 200-900 ms of silence before the first
+    /// sample with any sound in it (log, 2026-09-11). The device is released only when
+    /// dictation is switched off or the app exits.
+    /// </remarks>
+    public static readonly TimeSpan DefaultIdleTimeout = Timeout.InfiniteTimeSpan;
 
     private readonly IAudioCapture _inner;
     private readonly int _preRollSamples;
@@ -54,6 +64,7 @@ public sealed class WarmAudioCapture : IAudioCapture
     private Task? _pumpTask;
     private CancellationTokenSource? _idle;
     private bool _reopenWanted;
+    private bool _rewarmAfterRelease;
 
     /// <summary>Wraps <paramref name="inner"/>.</summary>
     public WarmAudioCapture(IAudioCapture inner, TimeSpan? preRoll = null, TimeSpan? idleTimeout = null)
@@ -84,8 +95,51 @@ public sealed class WarmAudioCapture : IAudioCapture
     public TimeSpan PreRollDelivered { get; private set; }
 
     /// <summary>
-    /// Closes the device so the next recording opens it afresh — after the user picks a
-    /// different microphone in Settings.
+    /// Opens the device now, before any key press, so the first recording of the day is as
+    /// warm as the tenth. Safe to call repeatedly; does nothing while already warm.
+    /// </summary>
+    public void WarmUp() => _ = WarmUpAsync();
+
+    private async Task WarmUpAsync()
+    {
+        Task? draining;
+        lock (_lock) draining = _pump is null ? _pumpTask : null;
+        if (draining is { IsCompleted: false })
+        {
+            try { await draining.ConfigureAwait(false); }
+            catch (Exception) { /* reported when it happened */ }
+        }
+
+        lock (_lock)
+        {
+            if (_session is not null || IsWarm) return;
+            _reopenWanted = false;
+            StartPump();
+            ScheduleRelease();
+        }
+        Log.Info("microphone opened ahead of the first recording");
+    }
+
+    /// <summary>
+    /// Closes the device and leaves it closed — when dictation is switched off. A recording
+    /// in progress keeps the device until it ends.
+    /// </summary>
+    public void Release()
+    {
+        CancellationTokenSource? pump = null;
+        lock (_lock)
+        {
+            _reopenWanted = true;
+            _rewarmAfterRelease = false;
+            if (_session is null) pump = ReleaseLocked();
+        }
+        pump?.Cancel();
+        if (pump is not null) Log.Info("microphone released: dictation off");
+    }
+
+    /// <summary>
+    /// Closes the device and opens it again — after the user picks a different microphone
+    /// in Settings.
     /// </summary>
     /// <remarks>
     /// The inner capture reads the chosen device id only when it opens, so a warm stream
@@ -99,10 +153,12 @@ public sealed class WarmAudioCapture : IAudioCapture
         lock (_lock)
         {
             _reopenWanted = true;
+            _rewarmAfterRelease = true;
             if (_session is null) pump = ReleaseLocked();
         }
         pump?.Cancel();
         if (pump is not null) Log.Info("microphone released to switch device");
+        if (pump is not null) WarmUp();
     }
 
     /// <inheritdoc />
@@ -157,13 +213,16 @@ public sealed class WarmAudioCapture : IAudioCapture
         finally
         {
             CancellationTokenSource? pump = null;
+            var rewarm = false;
             lock (_lock)
             {
                 _session = null;
+                rewarm = _rewarmAfterRelease;
                 if (_reopenWanted) pump = ReleaseLocked();
                 else if (IsWarm) ScheduleRelease();
             }
             pump?.Cancel();
+            if (pump is not null && rewarm) WarmUp();
         }
     }
 
@@ -251,6 +310,7 @@ public sealed class WarmAudioCapture : IAudioCapture
 
     private void ScheduleRelease()
     {
+        if (_idleTimeout == Timeout.InfiniteTimeSpan) return;
         var idle = new CancellationTokenSource();
         _idle = idle;
         _ = ReleaseAfterIdleAsync(idle.Token);
@@ -262,6 +322,7 @@ public sealed class WarmAudioCapture : IAudioCapture
         _idle?.Cancel();
         _idle = null;
         _reopenWanted = false;
+        _rewarmAfterRelease = false;
         _ring.Clear();
         _ringSamples = 0;
         var pump = _pump;

@@ -156,6 +156,8 @@ public sealed class Composition : IAsyncDisposable
                 engine.DuckAudio = settings.Data.DuckOtherAudio;
                 engine.AiCleanup = settings.Data.AiCleanup;
                 engine.IsEnabled = settings.Data.IsEnabled;
+                // Idempotent both ways: warm stays warm, released stays released.
+                if (settings.Data.IsEnabled) capture!.WarmUp(); else capture!.Release();
                 if (engine.HotkeyVirtualKey != settings.Data.PushToTalkKey) engine.HotkeyVirtualKey = settings.Data.PushToTalkKey;
                 if (engine.HotkeyModifiers != settings.Data.PushToTalkModifiers) engine.HotkeyModifiers = settings.Data.PushToTalkModifiers;
                 if (engine.Cleaner?.Name != (string.IsNullOrWhiteSpace(settings.Data.GeminiModel) ? GeminiCleaner.DefaultModel : settings.Data.GeminiModel.Trim()))
@@ -164,6 +166,10 @@ public sealed class Composition : IAsyncDisposable
                     engine.Cleaner = new GeminiCleaner(() => settings.Data.GeminiApiKey, settings.Data.GeminiModel, customInstructions: () => settings.Data.CustomInstructions);
                 }
             };
+
+            // Open the microphone now rather than on the first key press: a cold stream
+            // spent up to 900 ms delivering silence, which is where first words went.
+            if (settings.Data.IsEnabled) capture!.WarmUp();
 
             engine.Completed += (_, result) =>
             {

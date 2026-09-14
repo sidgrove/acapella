@@ -84,6 +84,30 @@ public sealed class WarmAudioCaptureTests
     }
 
     [Fact]
+    public async Task Warming_up_opens_the_device_before_the_first_recording()
+    {
+        var device = new PushCapture();
+        await using var warm = new WarmAudioCapture(device, preRoll: TimeSpan.FromSeconds(1));
+
+        warm.WarmUp();
+        (await Wait.UntilAsync(() => device.IsCapturing)).ShouldBeTrue("the device opens at start-up, not on the key press");
+        warm.IsCapturing.ShouldBeFalse("nothing is recording yet");
+
+        // Said as the fingers land on the keys.
+        device.Push(7f);
+        await Task.Delay(50);
+        device.Push(8f);
+
+        var first = await TakeAsync(warm, 2, new CancellationTokenSource());
+        first.ShouldBe([7f, 8f], "the very first recording already has pre-roll");
+        device.Opens.ShouldBe(1);
+
+        warm.Release();
+        (await Wait.UntilAsync(() => !device.IsCapturing)).ShouldBeTrue("switching dictation off closes the device");
+        warm.IsWarm.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Pre_roll_is_bounded_to_the_newest_audio()
     {
         var device = new PushCapture();

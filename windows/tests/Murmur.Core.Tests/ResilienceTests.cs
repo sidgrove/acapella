@@ -176,11 +176,12 @@ public sealed class ResilienceTests
         device.Opens.ShouldBe(1);
 
         warm.ReopenDevice();
-        (await Wait.UntilAsync(() => !device.IsCapturing)).ShouldBeTrue("the old stream closes at once when idle");
+        (await Wait.UntilAsync(() => device.Opens == 2)).ShouldBeTrue("the device is closed and opened afresh at once, ready for the next key press");
+        (await Wait.UntilAsync(() => device.IsCapturing)).ShouldBeTrue();
 
         device.Push(2f);
         (await TakeAsync(warm, 1)).ShouldBe([2f]);
-        device.Opens.ShouldBe(2, "the next recording opened the device afresh");
+        device.Opens.ShouldBe(2, "the recording used the reopened device, not a third one");
     }
 
     [Fact]
