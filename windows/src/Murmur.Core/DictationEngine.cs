@@ -204,6 +204,9 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <summary>Terminal send phrase; spoken alone it sends existing text. Blank disables it.</summary>
     public string SendOnlyPhrase { get; set; } = "send it";
 
+    /// <summary>Mishearings accepted as <see cref="SendOnlyPhrase"/> when spoken alone.</summary>
+    public string SendOnlyAliases { get; set; } = SpokenSendCommand.DefaultSendOnlyAliases;
+
     /// <summary>Copies the final transcript before delivery, even when automatic typing is off.</summary>
     public Func<string, Task>? CopyTranscriptAsync { get; set; }
 
@@ -1005,7 +1008,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
         // The dictionary runs first and unconditionally. Biasing only raises the odds of the
         // right word; this is the pass that guarantees it.
-        if (SpokenSendCommand.IsStandalone(raw, SendOnlyPhrase))
+        if (SpokenSendCommand.IsStandalone(raw, SendOnlyPhrase, SendOnlyAliases))
         {
             if (InjectText) await SendToFocusedAppAsync().ConfigureAwait(false);
             return;

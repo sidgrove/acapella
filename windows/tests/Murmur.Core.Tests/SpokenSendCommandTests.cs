@@ -24,6 +24,40 @@ public sealed class SpokenSendCommandTests
         SpokenSendCommand.IsStandalone(text, phrase).ShouldBe(expected);
     }
 
+    /// <summary>Every one of these was typed into a chat on 9-14 September instead of sending.</summary>
+    [Theory]
+    [InlineData("Sender")]
+    [InlineData("Sender.")]
+    [InlineData("Sander?")]
+    [InlineData("Sanda")]
+    [InlineData("Send a")]
+    [InlineData("Send the")]
+    [InlineData("Send that.")]
+    [InlineData("Sunday.")]
+    [InlineData("sent it")]
+    public void Mishearings_of_the_phrase_spoken_alone_still_send(string heard)
+    {
+        SpokenSendCommand.IsStandalone(heard, "send it", SpokenSendCommand.DefaultSendOnlyAliases).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("See you on Sunday.")]
+    [InlineData("I sent it yesterday.")]
+    [InlineData("The sender was unknown.")]
+    public void Mishearings_inside_a_sentence_are_ordinary_words(string text)
+    {
+        SpokenSendCommand.IsStandalone(text, "send it", SpokenSendCommand.DefaultSendOnlyAliases).ShouldBeFalse();
+        SpokenSendCommand.Extract(text, "send it").Send.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Standalone_aliases_are_separate_from_trailing_ones()
+    {
+        // "Sunday" alone is a mangled "send it"; "…see you Sunday" at the end of a message is not.
+        SpokenSendCommand.Extract("Okay, see you Sunday", "send", "sand").Send.ShouldBeFalse();
+        JsonSerializer.Deserialize("{}", SettingsJsonContext.Default.SettingsData)!.SendOnlyAliases.ShouldBe(SpokenSendCommand.DefaultSendOnlyAliases);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

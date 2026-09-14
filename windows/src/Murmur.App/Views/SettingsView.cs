@@ -113,6 +113,11 @@ public sealed class SettingsView : UserControl
             var value = text?.Trim() ?? string.Empty;
             if (_settings.Data.SendOnlyPhrase != value) Save(_settings.Data with { SendOnlyPhrase = value });
         });
+        var sendOnlyAliases = Debounced(new TextBox { Text = _settings.Data.SendOnlyAliases, Watermark = SpokenSendCommand.DefaultSendOnlyAliases }, text =>
+        {
+            var value = text ?? string.Empty;
+            if (_settings.Data.SendOnlyAliases != value) Save(_settings.Data with { SendOnlyAliases = value });
+        });
         var fullStops = new Segmented(["Drop after one sentence", "Never end with one", "Keep"], (int)FullStopIndex(_settings.Data.FullStops));
         fullStops.Selected += (_, i) =>
         {
@@ -128,6 +133,8 @@ public sealed class SettingsView : UserControl
                 Text.Muted("End your dictation with this word to insert the text and press Enter when recording stops. The word is removed. Leave blank to disable."),
                 Panels.Labelled("Send phrase", sendOnly),
                 Text.Muted("Say this at the end to send your dictation, or on its own to send existing text. The phrase is removed. Leave blank to disable."),
+                Panels.Labelled("Also counts as the send phrase", sendOnlyAliases),
+                Text.Muted("What the speech model hears instead when you say the phrase on its own, separated by commas. Check the raw text in History for anything to add here."),
                 Text.Body("Full stop at the very end"),
                 fullStops,
                 Text.Muted("Chat messages and fragments read better without one. Questions and exclamation marks always stay.")),

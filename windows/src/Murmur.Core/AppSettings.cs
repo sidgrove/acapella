@@ -60,6 +60,12 @@ public sealed record SettingsData
     /// <summary>Terminal send phrase; spoken alone it sends existing text. Blank disables it.</summary>
     public string SendOnlyPhrase { get; set; } = "send it";
 
+    /// <summary>
+    /// Comma-separated mishearings of <see cref="SendOnlyPhrase"/> that count as it when they
+    /// are the whole utterance. Add whatever the history shows the model hearing instead.
+    /// </summary>
+    public string SendOnlyAliases { get; set; } = SpokenSendCommand.DefaultSendOnlyAliases;
+
     /// <summary>Whether to keep a transcript history.</summary>
     public bool KeepHistory { get; set; } = true;
 

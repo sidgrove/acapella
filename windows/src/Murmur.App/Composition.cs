@@ -130,6 +130,7 @@ public sealed class Composition : IAsyncDisposable
                 SendWord = settings.Data.SendWord,
                 SendWordAliases = settings.Data.SendWordAliases,
                 SendOnlyPhrase = settings.Data.SendOnlyPhrase,
+                SendOnlyAliases = settings.Data.SendOnlyAliases,
                 FullStops = settings.Data.FullStops,
                 Mode = settings.Data.Mode,
                 SpokenCommands = settings.Data.SpokenCommands,
@@ -149,6 +150,7 @@ public sealed class Composition : IAsyncDisposable
                 engine.SendWord = settings.Data.SendWord;
                 engine.SendWordAliases = settings.Data.SendWordAliases;
                 engine.SendOnlyPhrase = settings.Data.SendOnlyPhrase;
+                engine.SendOnlyAliases = settings.Data.SendOnlyAliases;
                 engine.FullStops = settings.Data.FullStops;
                 engine.Mode = settings.Data.Mode;
                 engine.SpokenCommands = settings.Data.SpokenCommands;
