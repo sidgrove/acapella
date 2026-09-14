@@ -69,8 +69,11 @@ public sealed class ResilienceTests
         // older part once and re-decode only the tail — never the whole buffer, which at
         // sixty seconds costs gigabytes and past four hundred throws.
         var hotkey = new FakeHotkeySource();
-        var capture = FakeAudioCapture.Tone(PreviewWindowSeconds + 5);
-        var transcriber = new FakeTranscriber("earlier", "later");
+        var capture = FakeAudioCapture.Noise(PreviewWindowSeconds + 5);
+        // Keyed on where each segment starts, not on call order: a slow runner's preview
+        // ticks before the fake has delivered everything, and then the calls come in a
+        // different order from a fast machine's.
+        var transcriber = FakeTranscriber.ByOffset(capture.Samples, atStart: "earlier", later: "later");
         await transcriber.LoadAsync(CancellationToken.None);
 
         await using var engine = new DictationEngine(capture, hotkey, transcriber, new RecordingTextInjector(), () => []);

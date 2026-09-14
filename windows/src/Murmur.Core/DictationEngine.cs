@@ -1200,17 +1200,29 @@ public sealed class DictationEngine : IAsyncDisposable
         _hotkey.CancelPressed -= OnCancelPressed;
         _hotkey.Dispose();
 
-        var current = _current;
-        if (current is not null)
+        // Read under the gate: EndAsync flips the state to Transcribing and only then, still
+        // holding the gate, queues the transcription on _finishChain. Read outside it, a
+        // dispose that lands in that gap sees the previous, completed chain, waits for
+        // nothing, and pulls the model out from under the decode that is about to start.
+        Session? current;
+        Task finishChain;
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            lock (_bufferLock) _current = null;
-            await current.Stop.CancelAsync().ConfigureAwait(false);
+            current = _current;
+            if (current is not null) lock (_bufferLock) _current = null;
+            finishChain = _finishChain;
         }
+        finally
+        {
+            _gate.Release();
+        }
+        if (current is not null) await current.Stop.CancelAsync().ConfigureAwait(false);
 
         // A quit during a dictation must not pull the model out from under a decode that
         // is still running on a pool thread — that is a native use-after-free, not an
         // exception. Wait for the preview and the transcription queue, briefly.
-        var inFlight = new[] { current?.Preview, current?.CaptureLoop, _finishChain }.Where(t => t is not null).Select(t => t!).ToArray();
+        var inFlight = new[] { current?.Preview, current?.CaptureLoop, finishChain }.Where(t => t is not null).Select(t => t!).ToArray();
         try { await Task.WhenAll(inFlight).WaitAsync(DisposeGrace).ConfigureAwait(false); }
         catch (Exception e) when (e is TimeoutException or OperationCanceledException) { Log.Warn("shutdown did not wait for the dictation in flight"); }
 

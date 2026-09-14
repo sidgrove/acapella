@@ -14,6 +14,15 @@ public sealed class IncrementalCleanupTests
 {
     private static int WindowSeconds => (int)DictationEngine.PreviewWindow.TotalSeconds;
 
+    /// <summary>
+    /// The frozen piece starts at the beginning of the buffer and reads one way; the live
+    /// tail and the final decode start after the cut and read the other. Keyed on offset
+    /// rather than call order so a slow runner, whose preview ticks mid-delivery, sees the
+    /// same story.
+    /// </summary>
+    private static FakeTranscriber Piece_then_tail(FakeAudioCapture capture) =>
+        FakeTranscriber.ByOffset(capture.Samples, atStart: "the quick brown fox jumped", later: "over the lazy sleeping dog");
+
     /// <summary>Upper-cases what it is given and remembers the context it was shown.</summary>
     private sealed class ContextCleaner : ITranscriptCleaner
     {
@@ -33,8 +42,8 @@ public sealed class IncrementalCleanupTests
     public async Task Final_pass_decodes_only_the_audio_after_the_frozen_preview()
     {
         var hotkey = new FakeHotkeySource();
-        var capture = FakeAudioCapture.Tone(WindowSeconds + 5);
-        var transcriber = new FakeTranscriber("the quick brown fox jumped", "over the lazy sleeping dog");
+        var capture = FakeAudioCapture.Noise(WindowSeconds + 5);
+        var transcriber = Piece_then_tail(capture);
         await transcriber.LoadAsync(CancellationToken.None);
         var injector = new RecordingTextInjector();
 
@@ -54,8 +63,8 @@ public sealed class IncrementalCleanupTests
     public async Task Frozen_pieces_are_cleaned_during_the_recording_and_only_the_tail_afterwards()
     {
         var hotkey = new FakeHotkeySource();
-        var capture = FakeAudioCapture.Tone(WindowSeconds + 5);
-        var transcriber = new FakeTranscriber("the quick brown fox jumped", "over the lazy sleeping dog");
+        var capture = FakeAudioCapture.Noise(WindowSeconds + 5);
+        var transcriber = Piece_then_tail(capture);
         await transcriber.LoadAsync(CancellationToken.None);
         var injector = new RecordingTextInjector();
         var cleaner = new ContextCleaner();
@@ -82,8 +91,8 @@ public sealed class IncrementalCleanupTests
     public async Task A_piece_the_cleaner_could_not_handle_falls_back_to_cleaning_everything()
     {
         var hotkey = new FakeHotkeySource();
-        var capture = FakeAudioCapture.Tone(WindowSeconds + 5);
-        var transcriber = new FakeTranscriber("the quick brown fox jumped", "over the lazy sleeping dog");
+        var capture = FakeAudioCapture.Noise(WindowSeconds + 5);
+        var transcriber = Piece_then_tail(capture);
         await transcriber.LoadAsync(CancellationToken.None);
         var injector = new RecordingTextInjector();
         var cleaner = new FailFirstCleaner();

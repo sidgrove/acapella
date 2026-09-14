@@ -41,6 +41,22 @@ public sealed class FakeAudioCapture : IAudioCapture
     public static FakeAudioCapture Silence(double seconds) =>
         new(new float[(int)(seconds * AudioChunk.SampleRate)]);
 
+    /// <summary>
+    /// Generates <paramref name="seconds"/> of deterministic noise: audible, and unlike a
+    /// tone never repeats, so any stretch of it can be located in the whole by its first
+    /// few samples. See <see cref="FakeTranscriber.ByOffset"/>.
+    /// </summary>
+    public static FakeAudioCapture Noise(double seconds, int seed = 7)
+    {
+        var random = new Random(seed);
+        var samples = new float[(int)(seconds * AudioChunk.SampleRate)];
+        for (var i = 0; i < samples.Length; i++) samples[i] = (float)(random.NextDouble() - 0.5) * 0.6f;
+        return new FakeAudioCapture(samples);
+    }
+
+    /// <summary>The whole buffer this fake delivers.</summary>
+    public ReadOnlyMemory<float> Samples => _samples;
+
     /// <inheritdoc />
     public bool IsCapturing { get; private set; }
 
@@ -157,9 +173,35 @@ public sealed class FakeHotkeySource : IHotkeySource
 public sealed class FakeTranscriber : ITranscriber
 {
     private readonly Queue<string> _responses;
+    private readonly Func<ReadOnlyMemory<float>, string>? _bySamples;
 
     /// <summary>Each call returns the next response; the last repeats once exhausted.</summary>
     public FakeTranscriber(params string[] responses) => _responses = new Queue<string>(responses);
+
+    private FakeTranscriber(Func<ReadOnlyMemory<float>, string> bySamples)
+    {
+        _responses = new Queue<string>();
+        _bySamples = bySamples;
+    }
+
+    /// <summary>
+    /// Answers by where the submitted audio sits in <paramref name="source"/> rather than by
+    /// call order. The preview loop decodes on a timer while the fake capture is still
+    /// delivering, so on a slow CI runner the order of calls is not the order a fast machine
+    /// sees — but a segment that starts at the very beginning is always the frozen piece,
+    /// and one that starts later is always the live tail.
+    /// </summary>
+    /// <param name="source">The whole buffer, from <see cref="FakeAudioCapture.Noise"/> so stretches are unique.</param>
+    /// <param name="atStart">The transcript for audio that begins at the start of the buffer.</param>
+    /// <param name="later">The transcript for audio that begins anywhere after it.</param>
+    public static FakeTranscriber ByOffset(ReadOnlyMemory<float> source, string atStart, string later) =>
+        new(samples => OffsetOf(source.Span, samples.Span) == 0 ? atStart : later);
+
+    private static int OffsetOf(ReadOnlySpan<float> source, ReadOnlySpan<float> segment)
+    {
+        var probe = segment[..Math.Min(8, segment.Length)];
+        return source.IndexOf(probe);
+    }
 
     /// <summary>How many segments were submitted. Reveals chunking behaviour.</summary>
     public List<int> SegmentLengths { get; } = [];
@@ -185,6 +227,7 @@ public sealed class FakeTranscriber : ITranscriber
     {
         SegmentLengths.Add(samples.Length);
         LastBias = biasPhrases;
+        if (_bySamples is not null) return ValueTask.FromResult(_bySamples(samples));
         var text = _responses.Count > 1 ? _responses.Dequeue() : _responses.Peek();
         return ValueTask.FromResult(text);
     }
