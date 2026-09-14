@@ -153,6 +153,13 @@ public sealed class SendInputTextInjector : ITextInjector
     {
         if (string.IsNullOrEmpty(text)) return true;
 
+        // In Tap mode the recording stops on the chord's key-down, and a short result is
+        // ready to type about 60 ms later — while Ctrl and Win are still physically held.
+        // The target then reads "N", "e" as Ctrl+N, Ctrl+E and only the letters that arrive
+        // after the fingers lift survive: "Neck" landed as "ck" on 2026-09-14, and holding
+        // the chord longer lost more. Give the hand time to come off the keys first.
+        await WaitForModifiersReleasedAsync(cancellationToken).ConfigureAwait(false);
+
         // Newlines sent as Unicode packets do not reliably produce a new line — many controls
         // want a real VK_RETURN. Long text goes to the clipboard anyway, which handles them.
         var hasNewlines = text.Contains('\n', StringComparison.Ordinal);
@@ -220,7 +227,9 @@ public sealed class SendInputTextInjector : ITextInjector
                 inputs[(i * 2) + 1] = UnicodeInput(unit, up: true);
             }
 
-            if (SendInput((uint)inputs.Length, inputs, InputSize) != inputs.Length) return false;
+            // Lifted around each chunk: a modifier still held after the wait would turn
+            // every character into a shortcut.
+            if (!PressWithoutHeldModifiers(inputs)) return false;
             offset += length;
             if (offset < text.Length) Thread.Sleep(ChunkGap);
         }
@@ -263,6 +272,37 @@ public sealed class SendInputTextInjector : ITextInjector
         // Let typed or pasted characters reach the target before its submit key.
         await Task.Delay(SendSettle, cancellationToken).ConfigureAwait(false);
         return PressWithoutHeldModifiers([KeyInput(VK_RETURN, up: false), KeyInput(VK_RETURN, up: true)]);
+    }
+
+    /// <summary>How long to wait for a held modifier to come up before typing under it anyway.</summary>
+    private static readonly TimeSpan ModifierRelease = TimeSpan.FromMilliseconds(800);
+
+    private static async Task WaitForModifiersReleasedAsync(CancellationToken cancellationToken)
+    {
+        var deadline = Environment.TickCount64 + (long)ModifierRelease.TotalMilliseconds;
+        var waited = false;
+        while (AnyModifierHeld())
+        {
+            if (Environment.TickCount64 >= deadline)
+            {
+                // Still held: the characters go out with the modifiers lifted around them
+                // instead, so nothing is lost either way.
+                PlatformDiagnostics.Warn($"typed with a modifier still held after {ModifierRelease.TotalMilliseconds:0} ms; lifting it around the text");
+                return;
+            }
+            waited = true;
+            await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+        }
+        if (waited) PlatformDiagnostics.Warn($"waited {ModifierRelease.TotalMilliseconds - (deadline - Environment.TickCount64):0} ms for the chord to be released before typing");
+    }
+
+    private static bool AnyModifierHeld()
+    {
+        foreach (var key in SidedModifiers)
+        {
+            if ((GetAsyncKeyState(key) & 0x8000) != 0) return true;
+        }
+        return false;
     }
 
     /// <summary>
