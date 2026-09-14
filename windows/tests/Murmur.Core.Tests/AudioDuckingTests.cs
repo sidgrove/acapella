@@ -28,7 +28,7 @@ public sealed class AudioDuckingTests
     private sealed class CaptureOrderDucker(FakeAudioCapture capture) : Murmur.Abstractions.IAudioDucker
     {
         public bool WasCapturing { get; private set; }
-        public void Duck() => WasCapturing = capture.IsCapturing;
+        public bool Duck() { WasCapturing = capture.IsCapturing; return false; }
         public void Restore() { }
     }
 

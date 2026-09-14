@@ -129,6 +129,12 @@ public sealed class DictationEngine : IAsyncDisposable
         public Task? CaptureLoop;
 
         /// <summary>
+        /// Other apps were audibly playing until the key press muted them, so the pre-roll
+        /// is their sound, not the user's, and the final pass discards it.
+        /// </summary>
+        public bool OtherAudioWasPlaying;
+
+        /// <summary>
         /// Audio the preview loop has already decoded and frozen, oldest first. The final
         /// transcription reuses this text and decodes only what came after
         /// <see cref="CommittedSamples"/>. Guarded by <c>_bufferLock</c>.
@@ -567,8 +573,8 @@ public sealed class DictationEngine : IAsyncDisposable
                         if (_isEnabled && _duckAudio && !_ducked && Ducker is { } ducker)
                         {
                             _ducked = true;
-                            ducker.Duck();
-                            Log.Info("other audio ducked");
+                            session.OtherAudioWasPlaying = ducker.Duck();
+                            Log.Info(session.OtherAudioWasPlaying ? "other audio ducked (it was playing)" : "other audio ducked");
                         }
                     }
                 }
@@ -885,6 +891,25 @@ public sealed class DictationEngine : IAsyncDisposable
     private async Task ProcessAsync(Session session)
     {
         var samples = session.Buffer;
+
+        // The pre-roll was captured while other playback was still at full volume, so its
+        // words are the video's, not the user's. It is the first thing the warm capture
+        // delivered, so it is the start of the buffer. Anything the preview froze from that
+        // start is discarded with it and decoded afresh; that only happens on a long
+        // dictation begun over playing audio.
+        if (session.OtherAudioWasPlaying && session.PreRoll > TimeSpan.Zero)
+        {
+            var preRollSamples = Math.Min(samples.Count, (int)(session.PreRoll.TotalSeconds * AudioChunk.SampleRate));
+            lock (_bufferLock)
+            {
+                samples.RemoveRange(0, preRollSamples);
+                session.Committed.Clear();
+                session.CommittedSamples = 0;
+            }
+            Log.Info($"dropped {session.PreRoll.TotalSeconds:0.0}s of pre-roll: other audio was playing");
+            session.PreRoll = TimeSpan.Zero;
+        }
+
         if (samples.Count == 0) return;
 
         var seconds = (double)samples.Count / AudioChunk.SampleRate;

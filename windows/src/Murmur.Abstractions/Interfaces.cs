@@ -272,7 +272,12 @@ public interface IWindowTweaks
 public interface IAudioDucker
 {
     /// <summary>Mutes other applications' playback and remembers their mute states.</summary>
-    void Duck();
+    /// <returns>
+    /// True if something was audibly playing at the moment it was muted. The engine uses
+    /// this to discard the pre-roll: audio kept from before the key press was recorded
+    /// while that playback was still at full volume, and it would be transcribed as words.
+    /// </returns>
+    bool Duck();
 
     /// <summary>Restores the mute states saved by <see cref="Duck"/>.</summary>
     void Restore();

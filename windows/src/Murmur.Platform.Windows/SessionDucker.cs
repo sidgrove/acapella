@@ -39,12 +39,16 @@ public sealed class SessionDucker : IAudioDucker
         lock (_lock) RecoverInterruptedMute();
     }
 
+    /// <summary>A session whose peak meter reads above this was audibly playing.</summary>
+    private const float AudiblePeak = 0.01f;
+
     /// <inheritdoc />
-    public void Duck()
+    public bool Duck()
     {
         lock (_lock)
         {
-            if (_device is not null) return;
+            if (_device is not null) return false;
+            var playing = false;
             try
             {
                 // Never overwrite an outstanding restoration record.
@@ -52,10 +56,10 @@ public sealed class SessionDucker : IAudioDucker
                 if (File.Exists(_recoveryPath))
                 {
                     PlatformDiagnostics.Warn("audio not ducked: a previous restoration is still pending");
-                    return;
+                    return false;
                 }
                 using var enumerator = new MMDeviceEnumerator();
-                if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)) return;
+                if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)) return false;
                 _device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
                 var sessions = _device.AudioSessionManager.Sessions;
                 var record = new List<string>();
@@ -70,6 +74,12 @@ public sealed class SessionDucker : IAudioDucker
                     {
                         session.Dispose();
                         continue;
+                    }
+                    // Read before muting: a muted session's meter drops to zero at once.
+                    if (session.State == AudioSessionState.AudioSessionStateActive &&
+                        session.AudioMeterInformation.MasterPeakValue > AudiblePeak)
+                    {
+                        playing = true;
                     }
                     _ducked.Add(session);
                     record.Add(session.GetSessionInstanceIdentifier);
@@ -94,7 +104,9 @@ public sealed class SessionDucker : IAudioDucker
             {
                 PlatformDiagnostics.Warn($"could not mute other audio: {e.Message}");
                 RestoreLocked();
+                return false;
             }
+            return playing;
         }
     }
 
