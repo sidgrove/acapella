@@ -103,7 +103,7 @@ public sealed class SettingsView : UserControl
             var value = text?.Trim() ?? string.Empty;
             if (_settings.Data.SendWord != value) Save(_settings.Data with { SendWord = value });
         });
-        var sendAliases = Debounced(new TextBox { Text = _settings.Data.SendWordAliases, Watermark = "e.g. sand" }, text =>
+        var sendAliases = Debounced(new TextBox { Text = _settings.Data.SendWordAliases, Watermark = "e.g. sand, sent, scent (as many as you like, separated by commas)" }, text =>
         {
             var value = text ?? string.Empty;
             if (_settings.Data.SendWordAliases != value) Save(_settings.Data with { SendWordAliases = value });
@@ -129,7 +129,7 @@ public sealed class SettingsView : UserControl
             Panels.Column(Tokens.Space.Snug,
                 Panels.Labelled("Send word", sendWord),
                 Panels.Labelled("Also send if you hear", sendAliases),
-                Text.Muted("Alternative words, separated by commas. Only matched at the end of the dictation, never between sentences or paragraphs."),
+                Text.Muted("As many alternative words as you like, separated by commas. Only matched at the end of the dictation, never between sentences or paragraphs."),
                 Text.Muted("End your dictation with this word to insert the text and press Enter when recording stops. The word is removed. Leave blank to disable."),
                 Panels.Labelled("Send phrase", sendOnly),
                 Text.Muted("Say this at the end to send your dictation, or on its own to send existing text. The phrase is removed. Leave blank to disable."),

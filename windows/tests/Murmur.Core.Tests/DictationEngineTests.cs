@@ -41,7 +41,7 @@ public sealed class DictationEngineTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Final_transcript_is_copied_whether_or_not_it_is_typed(bool inject)
+    public async Task Final_transcript_is_copied_before_optional_injection(bool inject)
     {
         var hotkey = new FakeHotkeySource();
         var capture = FakeAudioCapture.Tone(1.0);
@@ -50,11 +50,12 @@ public sealed class DictationEngineTests
             injector, DictionaryEntry.Correction("cloud code", "Claude Code"));
         engine.InjectText = inject;
         string? copied = null;
-        // The copy follows the typing now: the clipboard's owner lives on the UI thread
-        // and a paste that waited behind the copy took four times as long.
+        // Before, not after: a copy made straight after a paste swaps the clipboard under
+        // an app still reading it.
         engine.CopyTranscriptAsync = async text =>
         {
             await Task.Yield();
+            injector.Injected.ShouldBeEmpty();
             copied = text;
         };
         await DictateAsync(hotkey, engine, capture);

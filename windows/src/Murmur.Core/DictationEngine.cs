@@ -1278,9 +1278,20 @@ public sealed class DictationEngine : IAsyncDisposable
 
         if (cleanedBy is not null || !AiCleanup) LastFault = null;
 
-        // Typing comes first and the history and clipboard afterwards: the history list
-        // rebuild and the clipboard's owner both live on the UI thread, and a paste that
-        // waited behind them took four times as long with the window open.
+        // The clipboard copy comes before the typing, and must: a paste puts the text on
+        // the clipboard and presses Ctrl+V, and Chrome and Electron apps read the
+        // clipboard a little after the keypress. A copy made straight after the paste
+        // replaced the clipboard under them and they pasted nothing, one time in a few
+        // (2026-09-18). Whatever happens to the typing, the words are also already
+        // somewhere the user can get at them.
+        if (CopyTranscriptAsync is { } copy)
+        {
+            try { await copy(corrected).ConfigureAwait(false); }
+            catch (Exception e) { Log.Warn($"Could not copy transcription to clipboard: {e.Message}"); }
+        }
+
+        // The history comes after the typing: its list rebuild lives on the UI thread,
+        // and a paste that waited behind it took four times as long with the window open.
         var delivered = false;
         if (InjectText)
         {
@@ -1293,11 +1304,6 @@ public sealed class DictationEngine : IAsyncDisposable
             _lastDelivery = delivered ? new TypedDelivery(corrected, stopDropped, target, _hotkey.UserKeyPresses, _clock.Now, send) : null;
         }
 
-        if (CopyTranscriptAsync is { } copy)
-        {
-            try { await copy(corrected).ConfigureAwait(false); }
-            catch (Exception e) { Log.Warn($"Could not copy transcription to clipboard: {e.Message}"); }
-        }
         Completed?.Invoke(this, result);
 
         if (!InjectText) return;

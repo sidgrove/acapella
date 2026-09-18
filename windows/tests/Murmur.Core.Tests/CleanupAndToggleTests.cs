@@ -232,7 +232,9 @@ public sealed class EngineCleanupAndToggleTests
         hotkey.Press();
         await DrainAndReleaseAsync(hotkey, engine, capture);
 
-        order.ShouldBe(["inject", "copied", "completed"]);
+        // The copy first, so a paste never has the clipboard swapped under it; the
+        // history last, so its list rebuild never delays the typing.
+        order.ShouldBe(["copied", "inject", "completed"]);
     }
 
     [Fact]
