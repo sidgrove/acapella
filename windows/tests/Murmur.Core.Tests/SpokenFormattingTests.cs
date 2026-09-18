@@ -37,9 +37,44 @@ public sealed class SpokenFormattingTests
     [Theory]
     [InlineData("Are you coming question mark", "Are you coming?")]
     [InlineData("One comma two comma three full stop", "One, two, three.")]
-    [InlineData("Wait dash really", "Wait – really")]
+    [InlineData("Twenty hyphen five", "Twenty-five")]
     [InlineData("He said open quote no close quote", "He said “no”")]
     public void Spoken_punctuation_becomes_marks(string input, string expected) =>
+        SpokenFormatting.Apply(input).ShouldBe(expected);
+
+    /// <summary>
+    /// A week of real history: "period" was the noun every one of sixteen times and
+    /// "dash" was wrong both times it fired. Neither is a command in this en-GB product.
+    /// </summary>
+    [Theory]
+    [InlineData("PAYE reference period reference.")]
+    [InlineData("Period reference.")]
+    [InlineData("What is the VAT period end for this client?")]
+    [InlineData("Don't use m dash dashes please.")]
+    [InlineData("Wait dash really")]
+    public void Period_and_dash_are_ordinary_words(string input) =>
+        SpokenFormatting.Apply(input).ShouldBe(input);
+
+    [Fact]
+    public void Full_stop_still_works_next_to_the_word_period() =>
+        SpokenFormatting.Apply("The accounting period ends on the 31st of March. Full stop.").ShouldBe("The accounting period ends on the 31st of March.");
+
+    /// <summary>Commands that describe a thing, or tell someone else what to do, are left alone.</summary>
+    [Theory]
+    [InlineData("Can you delete that file and push again?")]
+    [InlineData("Please strike that deal off the list.")]
+    [InlineData("Can you add a new line to the invoice for the consultancy fee?")]
+    [InlineData("Add a new line item for the prepayment.")]
+    [InlineData("What the f- is that?")]
+    public void Command_words_inside_a_clause_are_not_commands(string input) =>
+        SpokenFormatting.Apply(input).ShouldBe(input);
+
+    [Theory]
+    [InlineData("I use e.g. the Xero API. Um, and sidgrove.com is the site.", "I use e.g. the Xero API. And sidgrove.com is the site.")]
+    [InlineData("Um, see Perplexity.ai for that", "See Perplexity.ai for that")]
+    [InlineData("Wait for it... um okay", "Wait for it... okay")]
+    [InlineData("Um, what is the full stop?", "What is the?")]
+    public void Tidying_respects_tokens_ellipses_and_mixed_marks(string input, string expected) =>
         SpokenFormatting.Apply(input).ShouldBe(expected);
 
     [Fact]

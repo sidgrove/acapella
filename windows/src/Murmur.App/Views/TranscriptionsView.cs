@@ -29,7 +29,17 @@ public sealed class TranscriptionsView : UserControl
         _store = store;
 
         _search = Field.Search("Search transcriptions");
-        _search.TextChanged += (_, _) => Refresh();
+        // Only a real change of query rebuilds the list: the box raises TextChanged once
+        // as its template applies, with the same empty text, and that used to redo every
+        // card at first show.
+        var lastQuery = string.Empty;
+        _search.TextChanged += (_, _) =>
+        {
+            var query = _search.Text ?? string.Empty;
+            if (query == lastQuery) return;
+            lastQuery = query;
+            Refresh();
+        };
         _search.MaxWidth = Tokens.Layout.ContentMaxWidth / 2;
         _search.HorizontalAlignment = HorizontalAlignment.Right;
 
@@ -72,10 +82,33 @@ public sealed class TranscriptionsView : UserControl
         };
 
         // The store changes on the engine's thread when a dictation completes; the list
-        // must only be rebuilt on the UI thread.
-        _store.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(Refresh);
+        // must only be touched on the UI thread. One new record is one new row at the
+        // top: rebuilding all 850 cards measured 120-200 ms with the window hidden and up
+        // to two seconds with it shown, and the paste of the next dictation waited on it.
+        _store.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(OnStoreChanged);
         Refresh();
     }
+
+    private Guid? _newestShown;
+    private int _shownCount;
+
+    private void OnStoreChanged()
+    {
+        var records = _store.Records;
+        var filtering = !string.IsNullOrEmpty(_search.Text);
+        if (!filtering && records.Count == _shownCount + 1 && _shownCount > 0 && records[0].Id != _newestShown && records[1].Id == _newestShown)
+        {
+            _list.Children.Insert(0, BuildRow(records[0]));
+            _newestShown = records[0].Id;
+            _shownCount = records.Count;
+            _count.Text = CountText();
+            return;
+        }
+
+        Refresh();
+    }
+
+    private string CountText() => $"{_store.Records.Count} recording{(_store.Records.Count == 1 ? "" : "s")}";
 
     private static Control Gutter(Control control)
     {
@@ -95,7 +128,9 @@ public sealed class TranscriptionsView : UserControl
         var records = _store.Search(_search.Text ?? string.Empty);
 
         _list.Children.Clear();
-        _count.Text = $"{_store.Records.Count} recording{(_store.Records.Count == 1 ? "" : "s")}";
+        _count.Text = CountText();
+        _newestShown = _store.Records.Count > 0 ? _store.Records[0].Id : null;
+        _shownCount = _store.Records.Count;
 
         if (records.Count == 0)
         {

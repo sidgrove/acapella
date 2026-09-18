@@ -108,6 +108,25 @@ public sealed record SettingsData
     /// <summary>Whether other applications' playback is turned down while recording.</summary>
     public bool DuckOtherAudio { get; set; } = true;
 
+    /// <summary>House style: no comma before "and", enforced after the AI tier as well.</summary>
+    public bool NoCommaBeforeAnd { get; set; }
+
+    /// <summary>Write the speech model's American spellings the British way.</summary>
+    public bool BritishSpelling { get; set; } = true;
+
+    /// <summary>
+    /// Clean a long dictation in one pass once the key is up, so the model sees all of it,
+    /// rather than piece by piece while it is still being spoken. Slower on long dictations
+    /// (roughly a second per hundred words) and the best result.
+    /// </summary>
+    public bool ReviewWholeDictation { get; set; }
+
+    /// <summary>
+    /// When the next dictation goes into the same field straight after the last, type the
+    /// space, and the full stop the trailing rule removed, that joins them.
+    /// </summary>
+    public bool JoinDictations { get; set; } = true;
+
     /// <summary>The user's own rules for the AI clean-up, appended to the prompt. Null for none.</summary>
     public string? CustomInstructions { get; set; }
 

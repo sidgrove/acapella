@@ -96,11 +96,21 @@ public sealed class MainWindow : ShellWindow
         {
             var audio = PlatformFactory.CreateFeedbackAudio();
             var feedback = new FeedbackSounds(() => _composition.Settings.Data, wave => audio?.Play(wave));
+            // The cue is decided on the engine's thread, the moment the state changes, and
+            // needs no dispatcher: the player is off-thread itself. The panel refresh is
+            // coalesced, because Changed fires for every audio chunk (a hundred a second,
+            // sixty of them in one burst as the pre-roll lands) and each post used to
+            // re-present the overlay.
+            var refreshPending = 0;
             engine.Changed += (_, _) =>
             {
                 var state = engine.State == DictationState.Recording && !engine.IsCaptureReady
                     ? DictationState.Idle : engine.State;
-                Dispatcher.UIThread.Post(() => { feedback.Observe(state); SyncFromEngine(); });
+                feedback.Observe(state);
+                if (Interlocked.Exchange(ref refreshPending, 1) == 0)
+                {
+                    Dispatcher.UIThread.Post(() => { Interlocked.Exchange(ref refreshPending, 0); SyncFromEngine(); });
+                }
             };
             engine.Faulted += (_, message) => Dispatcher.UIThread.Post(() => ShowFault(message));
             engine.Completed += (_, result) =>

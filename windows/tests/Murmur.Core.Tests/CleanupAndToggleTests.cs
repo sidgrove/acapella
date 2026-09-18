@@ -67,6 +67,61 @@ public sealed class GeminiCleanerTests
         (await cleaner.CleanAsync("hello", CancellationToken.None)).ShouldBeNull();
     }
 
+    [Fact]
+    public async Task The_dictionary_goes_to_the_model_as_vocabulary()
+    {
+        var server = new FakeGemini(reply: "git pull and check Xero");
+        using var cleaner = new GeminiCleaner(() => "test-key", null, server, vocabulary: () => ["Xero", "git pull"]);
+
+        await cleaner.CleanAsync("get pool and check zero", CancellationToken.None);
+
+        server.LastBody.ShouldContain("own word list");
+        server.LastBody.ShouldContain("Xero, git pull");
+    }
+
+    [Fact]
+    public async Task An_empty_dictionary_adds_nothing_to_the_prompt()
+    {
+        var server = new FakeGemini(reply: "x");
+        using var cleaner = Build(server);
+
+        await cleaner.CleanAsync("hello there", CancellationToken.None);
+
+        server.LastBody.ShouldNotContain("write it exactly as listed");
+    }
+
+    [Fact]
+    public async Task A_piece_is_framed_as_possibly_unfinished_and_a_tail_is_not()
+    {
+        var server = new FakeGemini(reply: "x");
+        using var cleaner = Build(server);
+
+        await cleaner.CleanPieceAsync("we've still got a section", null, CancellationToken.None);
+        server.LastBody.ShouldContain("may stop mid-sentence");
+
+        await cleaner.CleanAsync("and nothing else", "We've still got a section", CancellationToken.None);
+        server.LastBody.ShouldNotContain("may stop mid-sentence");
+        server.LastBody.ShouldContain("earlier part of this dictation");
+    }
+
+    [Fact]
+    public async Task No_key_is_named_as_the_reason()
+    {
+        if (Environment.GetEnvironmentVariable(GeminiCleaner.ApiKeyEnvironmentVariable) is { Length: > 0 }) return;
+        using var cleaner = Build(new FakeGemini(reply: "never"), key: null);
+
+        (await cleaner.CleanAsync("hello there", CancellationToken.None)).ShouldBeNull();
+        cleaner.LastError.ShouldBe("no API key");
+    }
+
+    [Fact]
+    public void The_prompt_keeps_period_as_a_word_and_swearing_as_the_speakers_own()
+    {
+        GeminiCleaner.Instructions.ShouldContain("\"Period\" is always a word");
+        GeminiCleaner.Instructions.ShouldContain("Swearing and intensifiers are the speaker's words");
+        GeminiCleaner.Instructions.ShouldContain("Never write an em dash or an en dash");
+    }
+
     /// <summary>A stand-in for the Generative Language endpoint.</summary>
     private sealed class FakeGemini : HttpMessageHandler
     {
@@ -134,6 +189,170 @@ public sealed class EngineCleanupAndToggleTests
 
         injector.Injected.ShouldBe(["Hello there, how are you"]);
         completed.ShouldNotBeNull().CleanedBy.ShouldBe("stub");
+    }
+
+    /// <summary>
+    /// The cleaner is shown the spoken commands as words, so "period", "full stop" and
+    /// "new line" are judged in context; the local rules' reading is only the fallback.
+    /// </summary>
+    [Fact]
+    public async Task The_cleaner_sees_commands_as_words_and_the_fallback_applies_them()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        var seen = new RecordingCleaner(reply: null);
+        const string raw = "One comma two full stop and the period ends in March.";
+
+        var capture = FakeAudioCapture.Tone(0.6);
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber(raw), injector, () => [])
+        {
+            AiCleanup = true,
+            Cleaner = seen,
+            FullStops = TrailingFullStop.Never,
+        };
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+
+        seen.Texts.ShouldHaveSingleItem().ShouldBe(raw);
+        injector.Injected.ShouldBe(["One, two. And the period ends in March"]);
+    }
+
+    [Fact]
+    public async Task History_is_written_after_the_text_is_typed()
+    {
+        var hotkey = new FakeHotkeySource();
+        var order = new List<string>();
+        var injector = new OrderInjector(order);
+        var capture = FakeAudioCapture.Tone(0.6);
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber("hello there"), injector, () => []);
+        engine.Completed += (_, _) => order.Add("completed");
+        engine.CopyTranscriptAsync = _ => { order.Add("copied"); return Task.CompletedTask; };
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+
+        order.ShouldBe(["inject", "copied", "completed"]);
+    }
+
+    [Fact]
+    public async Task House_style_and_british_spellings_apply_to_what_the_cleaner_returns()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        var capture = FakeAudioCapture.Tone(0.6);
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber("we should optimize the report, and then send it over"), injector, () => [])
+        {
+            AiCleanup = true,
+            Cleaner = new StubCleaner("We should optimize the report, and then send it over"),
+            NoCommaBeforeAnd = true,
+            BritishSpelling = true,
+        };
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+
+        injector.Injected.ShouldBe(["We should optimise the report and then send it over"]);
+    }
+
+    [Fact]
+    public async Task A_cleaner_that_never_answers_is_cut_off_by_the_budget()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        var capture = FakeAudioCapture.Tone(0.6);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber("hello there, how are you"), injector, () => [])
+        {
+            AiCleanup = true,
+            Cleaner = new NeverCleaner(),
+        };
+        DictationResult? completed = null;
+        engine.Completed += (_, r) => completed = r;
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+
+        started.Elapsed.ShouldBeLessThan(DictationEngine.CleanupBudget + TimeSpan.FromSeconds(3));
+        injector.Injected.ShouldBe(["hello there, how are you"]);
+        completed.ShouldNotBeNull().Cleanup.ShouldBe(CleanupPath.LocalFallback);
+    }
+
+    [Fact]
+    public async Task Two_dictations_into_the_same_field_are_joined()
+    {
+        var hotkey = new FakeHotkeySource { UserKeyPresses = 3 };
+        var injector = new RecordingTextInjector { FocusTarget = "chat/box" };
+        var capture = FakeAudioCapture.Tone(0.6);
+        var transcriber = new FakeTranscriber("Sounds good.", "Next point.");
+        await using var engine = new DictationEngine(capture, hotkey, transcriber, injector, () => [])
+        {
+            FullStops = TrailingFullStop.Never,
+        };
+        DictationResult? completed = null;
+        engine.Completed += (_, r) => completed = r;
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Deliveries == 2);
+        hotkey.Release();
+        await Wait.UntilAsync(() => injector.Injected.Count == 2 && engine.State == DictationState.Idle);
+
+        injector.Injected.ShouldBe(["Sounds good", ". Next point"]);
+        completed.ShouldNotBeNull().Text.ShouldBe("Next point", "the history keeps the dictation itself, not the join");
+    }
+
+    [Fact]
+    public async Task Typing_in_between_means_no_join()
+    {
+        var hotkey = new FakeHotkeySource { UserKeyPresses = 3 };
+        var injector = new RecordingTextInjector { FocusTarget = "chat/box" };
+        var capture = FakeAudioCapture.Tone(0.6);
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber("Sounds good.", "Next point."), injector, () => [])
+        {
+            FullStops = TrailingFullStop.Never,
+        };
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+        hotkey.UserKeyPresses = 4;
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Deliveries == 2);
+        hotkey.Release();
+        await Wait.UntilAsync(() => injector.Injected.Count == 2 && engine.State == DictationState.Idle);
+
+        injector.Injected.ShouldBe(["Sounds good", "Next point"]);
+    }
+
+    private sealed class RecordingCleaner(string? reply) : ITranscriptCleaner
+    {
+        public List<string> Texts { get; } = [];
+        public string Name => "recording";
+        public Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
+        {
+            Texts.Add(text);
+            return Task.FromResult(reply);
+        }
+    }
+
+    private sealed class NeverCleaner : ITranscriptCleaner
+    {
+        public string Name => "never";
+        public async Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+    }
+
+    private sealed class OrderInjector(List<string> order) : ITextInjector
+    {
+        public ValueTask<bool> InjectAsync(string text, CancellationToken cancellationToken)
+        {
+            order.Add("inject");
+            return ValueTask.FromResult(true);
+        }
     }
 
     [Fact]

@@ -104,8 +104,9 @@ public struct DictionaryWarning: Identifiable, Sendable {
             }
         }
 
-        if entry.write.trimmingCharacters(in: .whitespacesAndNewlines)
-            .caseInsensitiveCompare(trigger) == .orderedSame {
+        // Exact, not case-insensitive: "codex -> Codex" changes the text and is a
+        // perfectly good entry.
+        if entry.write.trimmingCharacters(in: .whitespacesAndNewlines) == trigger {
             warnings.append(DictionaryWarning(
                 message: "This rewrites “\(trigger)” to itself, so it will never change anything."
             ))

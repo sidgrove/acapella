@@ -153,6 +153,9 @@ public sealed class FakeHotkeySource : IHotkeySource
     /// <summary>Whether <see cref="Start"/> has been called.</summary>
     public bool IsRunning { get; private set; }
 
+    /// <summary>Key presses a test says the user made. Bump it to mean "they typed something".</summary>
+    public long UserKeyPresses { get; set; }
+
     /// <inheritdoc />
     public bool Start() { IsRunning = true; return true; }
 
@@ -248,6 +251,9 @@ public sealed class RecordingTextInjector : ITextInjector
 {
     /// <summary>Everything injected, in order.</summary>
     public List<string> Injected { get; } = [];
+
+    /// <summary>The control a test says has focus. Null, as for a platform that cannot tell, by default.</summary>
+    public string? FocusTarget { get; set; }
 
     /// <inheritdoc />
     public ValueTask<bool> InjectAsync(string text, CancellationToken cancellationToken)

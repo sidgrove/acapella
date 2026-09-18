@@ -156,6 +156,13 @@ public interface IHotkeySource : IDisposable
     /// </remarks>
     bool IsTriggerHeld => true;
 
+    /// <summary>
+    /// How many key presses the user has made that were not this app's own, not the chord.
+    /// Only ever compared: a change between two dictations means the user typed something
+    /// in between. Zero forever where the platform cannot observe keys.
+    /// </summary>
+    long UserKeyPresses => 0;
+
     /// <summary>Begins listening.</summary>
     /// <returns>False if the hook could not be installed.</returns>
     bool Start();
@@ -175,6 +182,12 @@ public interface ITextInjector
 
     /// <summary>Presses Enter in the focused app after successful text delivery.</summary>
     ValueTask<bool> SendAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
+    /// <summary>
+    /// An opaque identity for the control the next text would go into, or null where the
+    /// platform cannot tell. Two dictations with the same target landed in the same field.
+    /// </summary>
+    string? FocusTarget => null;
 }
 
 /// <summary>Turns audio into text.</summary>
@@ -310,6 +323,14 @@ public interface ITranscriptCleaner
     /// wait after the key-up is for the last few seconds of speech, not for all of it.
     /// </remarks>
     Task<string?> CleanAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) => CleanAsync(text, cancellationToken);
+
+    /// <summary>
+    /// Cleans a piece frozen while the user was still talking. Like
+    /// <see cref="CleanAsync(string, string?, CancellationToken)"/>, except the piece was cut
+    /// from the audio at a pause and may stop mid-sentence, so the cleaner must not close it
+    /// with a full stop unless the words finish a sentence.
+    /// </summary>
+    Task<string?> CleanPieceAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) => CleanAsync(text, precedingCleaned, cancellationToken);
 
     /// <summary>Why the most recent <see cref="CleanAsync(string, CancellationToken)"/> returned null, for the log. Null when it succeeded.</summary>
     string? LastError => null;

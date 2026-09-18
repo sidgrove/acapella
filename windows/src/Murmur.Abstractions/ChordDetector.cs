@@ -63,6 +63,9 @@ public sealed class ChordDetector
     /// <summary>Whether the chord is currently held.</summary>
     public bool IsActive => _active;
 
+    /// <summary>Whether <paramref name="key"/> is the trigger or one of the chord's modifiers.</summary>
+    public bool Involves(int key) => key == TriggerKey || (FlagOf(key) & Modifiers) != 0;
+
     /// <summary>Feeds one key event.</summary>
     /// <param name="key">A left/right-specific virtual key.</param>
     /// <param name="isDown">True for key-down, including autorepeat; false for key-up.</param>

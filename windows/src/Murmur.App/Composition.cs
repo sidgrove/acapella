@@ -135,13 +135,17 @@ public sealed class Composition : IAsyncDisposable
                 Mode = settings.Data.Mode,
                 SpokenCommands = settings.Data.SpokenCommands,
                 RemoveFillers = settings.Data.RemoveFillers,
+                NoCommaBeforeAnd = settings.Data.NoCommaBeforeAnd,
+                BritishSpelling = settings.Data.BritishSpelling,
+                ReviewWholeDictation = settings.Data.ReviewWholeDictation,
+                JoinDictations = settings.Data.JoinDictations,
                 Ducker = PlatformFactory.CreateAudioDucker(),
                 DuckAudio = settings.Data.DuckOtherAudio,
                 AiCleanup = settings.Data.AiCleanup,
                 IsEnabled = settings.Data.IsEnabled,
                 HotkeyModifiers = settings.Data.PushToTalkModifiers,
                 // Key and model are read per call, so pasting a key into Settings works at once.
-                Cleaner = new GeminiCleaner(() => settings.Data.GeminiApiKey, settings.Data.GeminiModel, customInstructions: () => settings.Data.CustomInstructions),
+                Cleaner = NewCleaner(settings, dictionary),
             };
 
             settings.Changed += (_, _) =>
@@ -155,6 +159,10 @@ public sealed class Composition : IAsyncDisposable
                 engine.Mode = settings.Data.Mode;
                 engine.SpokenCommands = settings.Data.SpokenCommands;
                 engine.RemoveFillers = settings.Data.RemoveFillers;
+                engine.NoCommaBeforeAnd = settings.Data.NoCommaBeforeAnd;
+                engine.BritishSpelling = settings.Data.BritishSpelling;
+                engine.ReviewWholeDictation = settings.Data.ReviewWholeDictation;
+                engine.JoinDictations = settings.Data.JoinDictations;
                 engine.DuckAudio = settings.Data.DuckOtherAudio;
                 engine.AiCleanup = settings.Data.AiCleanup;
                 engine.IsEnabled = settings.Data.IsEnabled;
@@ -165,7 +173,7 @@ public sealed class Composition : IAsyncDisposable
                 if (engine.Cleaner?.Name != (string.IsNullOrWhiteSpace(settings.Data.GeminiModel) ? GeminiCleaner.DefaultModel : settings.Data.GeminiModel.Trim()))
                 {
                     (engine.Cleaner as IDisposable)?.Dispose();
-                    engine.Cleaner = new GeminiCleaner(() => settings.Data.GeminiApiKey, settings.Data.GeminiModel, customInstructions: () => settings.Data.CustomInstructions);
+                    engine.Cleaner = NewCleaner(settings, dictionary);
                 }
             };
 
@@ -193,6 +201,16 @@ public sealed class Composition : IAsyncDisposable
 
         return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available);
     }
+
+    /// <summary>
+    /// The AI tier over the current settings and dictionary. The dictionary's correct
+    /// spellings go to the model as vocabulary: the speech model on Windows cannot be
+    /// biased, so this is the one tier that can hear "get pool" as "git pull".
+    /// </summary>
+    private static GeminiCleaner NewCleaner(AppSettings settings, DictionaryFile dictionary) =>
+        new(() => settings.Data.GeminiApiKey, settings.Data.GeminiModel,
+            customInstructions: () => settings.Data.CustomInstructions,
+            vocabulary: () => DictionaryCorrector.BiasPhrases(dictionary.Entries));
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

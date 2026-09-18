@@ -58,6 +58,96 @@ public static class TranscriptPolish
         if (trimmed.Length >= 2 && trimmed[^2] == '.') return text;
         return trimmed[..^1];
     }
+
+    /// <summary>
+    /// Removes the comma before "and": "A, B, and C" is "A, B and C", and "we did X, and
+    /// then Y" is "we did X and then Y".
+    /// </summary>
+    /// <remarks>
+    /// A house-style rule, enforced here because the generative tier does not keep it:
+    /// with "Don't put commas before and" in the user's own instructions, Gemini still
+    /// introduced 45 of them in a week. It is a switch, since now and then the comma
+    /// closes an aside and a user who does not hold the rule should not lose it.
+    /// </remarks>
+    public static string RemoveCommaBeforeAnd(string text) =>
+        System.Text.RegularExpressions.Regex.Replace(text, @",(\s+)(and)\b", "$1$2", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+}
+
+/// <summary>
+/// The handful of American spellings the speech model produces, written the British way.
+/// </summary>
+/// <remarks>
+/// Deliberately conservative: a fixed set of families, whole words only, never inside a
+/// dotted, hyphenated or camel-cased token, so a code identifier dictated as prose is left
+/// alone. "Program" and "licence" are ambiguous in en-GB and are not touched.
+/// </remarks>
+public static partial class BritishSpellings
+{
+    /// <summary>Words that end in -ize and are spelt that way in British English too.</summary>
+    private static readonly HashSet<string> IzeExceptions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "size", "seize", "prize", "capsize", "resize", "downsize", "upsize", "oversize", "undersize", "maize", "baize", "assize",
+    };
+
+    private static readonly Dictionary<string, string> Words = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["behavior"] = "behaviour", ["behaviors"] = "behaviours", ["behavioral"] = "behavioural",
+        ["favor"] = "favour", ["favors"] = "favours", ["favored"] = "favoured", ["favorite"] = "favourite", ["favorites"] = "favourites", ["favorable"] = "favourable",
+        ["color"] = "colour", ["colors"] = "colours", ["colored"] = "coloured", ["colorful"] = "colourful",
+        ["center"] = "centre", ["centers"] = "centres", ["centered"] = "centred",
+        ["gray"] = "grey", ["catalog"] = "catalogue", ["catalogs"] = "catalogues",
+        ["modeling"] = "modelling", ["modeled"] = "modelled", ["traveling"] = "travelling", ["traveled"] = "travelled", ["canceled"] = "cancelled", ["canceling"] = "cancelling",
+        ["fulfill"] = "fulfil", ["fulfillment"] = "fulfilment", ["enroll"] = "enrol", ["enrollment"] = "enrolment",
+        ["analyze"] = "analyse", ["analyzed"] = "analysed", ["analyzing"] = "analysing", ["paralyze"] = "paralyse",
+        ["defense"] = "defence", ["offense"] = "offence", ["license"] = "licence", ["practise"] = "practise",
+    };
+
+    /// <summary>Applies the map to whole words.</summary>
+    public static string Apply(string text) => Word().Replace(text, m => Replace(m.Value));
+
+    private static string Replace(string word)
+    {
+        if (Words.TryGetValue(word, out var british)) return MatchCase(word, british);
+
+        var lower = word.ToLowerInvariant();
+        string? replaced = null;
+        if (lower.EndsWith("ization", StringComparison.Ordinal) || lower.EndsWith("izations", StringComparison.Ordinal))
+        {
+            replaced = word[..word.IndexOf("iz", StringComparison.OrdinalIgnoreCase)] + Case(word, "is") + word[(word.IndexOf("iz", StringComparison.OrdinalIgnoreCase) + 2)..];
+        }
+        else if ((lower.EndsWith("ize", StringComparison.Ordinal) || lower.EndsWith("izes", StringComparison.Ordinal) || lower.EndsWith("ized", StringComparison.Ordinal) || lower.EndsWith("izing", StringComparison.Ordinal))
+                 && lower.Length >= 6 && !IzeExceptions.Contains(Stem(lower)))
+        {
+            var at = lower.LastIndexOf("iz", StringComparison.Ordinal);
+            replaced = word[..at] + Case(word[at..(at + 2)], "is") + word[(at + 2)..];
+        }
+
+        return replaced ?? word;
+    }
+
+    /// <summary>"organizing" and "organized" back to "organize", so the exception list is checked on one form.</summary>
+    private static string Stem(string lower)
+    {
+        if (lower.EndsWith("izing", StringComparison.Ordinal)) return lower[..^3] + "e";
+        if (lower.EndsWith("ized", StringComparison.Ordinal) || lower.EndsWith("izes", StringComparison.Ordinal)) return lower[..^1];
+        return lower;
+    }
+
+    private static string Case(string original, string replacement) =>
+        original.Length > 0 && original.All(char.IsUpper) ? replacement.ToUpperInvariant()
+        : original.Length > 0 && char.IsUpper(original[0]) ? char.ToUpperInvariant(replacement[0]) + replacement[1..]
+        : replacement;
+
+    private static string MatchCase(string original, string replacement)
+    {
+        if (original.All(char.IsUpper)) return replacement.ToUpperInvariant();
+        return char.IsUpper(original[0]) ? char.ToUpperInvariant(replacement[0]) + replacement[1..] : replacement;
+    }
+
+    // A whole word with nothing token-like touching it: no dot, hyphen, underscore or digit
+    // either side, and no capital immediately after (camelCase).
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?<![\p{L}\p{N}._\-])\p{L}+(?![\p{L}\p{N}._\-])", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex Word();
 }
 
 /// <summary>

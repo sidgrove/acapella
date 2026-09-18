@@ -187,6 +187,27 @@ public sealed class SpokenSendCommandTests
         JsonSerializer.Deserialize(json, SettingsJsonContext.Default.SettingsData)!.SendWord.ShouldBe("dispatch");
     }
 
+    /// <summary>
+    /// The command is taken off the raw text once, before anything else sees it. A second
+    /// pass over the cleaned text used to strip the user's own words as well: "I'll send it
+    /// send." typed "I'll".
+    /// </summary>
+    [Fact]
+    public async Task The_send_word_is_removed_once_and_the_users_own_words_stay()
+    {
+        var hotkey = new FakeHotkeySource();
+        var capture = FakeAudioCapture.Tone(1);
+        var injector = new Delivery(true);
+        await using var engine = new DictationEngine(capture, hotkey,
+            new FakeTranscriber("I'll send it send."), injector, () => [])
+        { SendWord = "send", SendWordAliases = "sand", SendOnlyPhrase = "send it" };
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Delivered);
+        hotkey.Release();
+        await Wait.UntilAsync(() => engine.State == DictationState.Idle);
+        injector.Calls.ShouldBe(["I'll send it", "enter"]);
+    }
+
     private sealed class Delivery(bool succeeds) : ITextInjector
     {
         public List<string> Calls { get; } = [];

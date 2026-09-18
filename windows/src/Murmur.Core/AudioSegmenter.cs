@@ -30,9 +30,11 @@ public static class AudioSegmenter
 
     /// <summary>
     /// Longest segment we will actually produce. Far below the ceiling, because memory grows
-    /// with length and a 60-second segment already costs ~2.5 GB.
+    /// with length and never comes back: the ONNX arena keeps its high-water mark, and one
+    /// 60-second decode measured +534 MB for the rest of the process. The live preview
+    /// already decodes 25-second windows, so 30 costs nothing new.
     /// </summary>
-    public const int MaxSegmentSeconds = 60;
+    public const int MaxSegmentSeconds = 30;
 
     /// <summary>
     /// How far back from the cut point to look for a quiet moment. A cut is placed at the

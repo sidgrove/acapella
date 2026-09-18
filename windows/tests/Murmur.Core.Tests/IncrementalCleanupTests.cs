@@ -113,6 +113,89 @@ public sealed class IncrementalCleanupTests
         injector.Injected.ShouldHaveSingleItem().ShouldBe("THE QUICK BROWN FOX JUMPED OVER THE LAZY SLEEPING DOG");
     }
 
+    /// <summary>
+    /// The audio cut fell mid-sentence: the speech model closed the piece with a full stop
+    /// and opened the next with a capital, and the cleaner rightly carries the sentence on
+    /// in lower case. The stop must not survive the join.
+    /// </summary>
+    [Fact]
+    public async Task A_sentence_cut_by_the_audio_split_is_joined_back_together()
+    {
+        var hotkey = new FakeHotkeySource();
+        var capture = FakeAudioCapture.Noise(WindowSeconds + 5);
+        var transcriber = FakeTranscriber.ByOffset(capture.Samples, atStart: "We've still got a management pack section.", later: "Whereby we've got the inbuilt one and nothing else.");
+        await transcriber.LoadAsync(CancellationToken.None);
+        var injector = new RecordingTextInjector();
+        var cleaner = new ContinuingCleaner();
+
+        await using var engine = new DictationEngine(capture, hotkey, transcriber, injector, () => [])
+        {
+            AiCleanup = true,
+            Cleaner = cleaner,
+            FullStops = TrailingFullStop.Keep,
+        };
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Delivered);
+        await Wait.UntilAsync(() => cleaner.Pieces.Count == 1);
+        cleaner.Pieces[0].ShouldBe("We've still got a management pack section", "the cleaner decides whether the sentence ended; the cut's full stop is not shown to it");
+
+        hotkey.Release();
+        await Wait.UntilAsync(() => engine.State == DictationState.Idle);
+
+        injector.Injected.ShouldHaveSingleItem().ShouldBe("We've still got a management pack section whereby we've got the inbuilt one and nothing else.");
+    }
+
+    [Fact]
+    public async Task Reviewing_the_whole_dictation_cleans_nothing_early_and_everything_once()
+    {
+        var hotkey = new FakeHotkeySource();
+        var capture = FakeAudioCapture.Noise(WindowSeconds + 5);
+        var transcriber = Piece_then_tail(capture);
+        await transcriber.LoadAsync(CancellationToken.None);
+        var injector = new RecordingTextInjector();
+        var cleaner = new ContextCleaner();
+
+        await using var engine = new DictationEngine(capture, hotkey, transcriber, injector, () => [])
+        {
+            AiCleanup = true,
+            Cleaner = cleaner,
+            ReviewWholeDictation = true,
+        };
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Delivered);
+        (await Wait.UntilAsync(() => engine.Preview.StartsWith("the quick brown fox jumped", StringComparison.Ordinal))).ShouldBeTrue();
+        cleaner.Calls.ShouldBeEmpty("nothing goes to the cleaner while the key is down");
+
+        hotkey.Release();
+        await Wait.UntilAsync(() => engine.State == DictationState.Idle);
+
+        cleaner.Calls.ShouldHaveSingleItem().ShouldBe(("the quick brown fox jumped over the lazy sleeping dog", null));
+        injector.Injected.ShouldHaveSingleItem().ShouldBe("THE QUICK BROWN FOX JUMPED OVER THE LAZY SLEEPING DOG");
+        transcriber.SegmentLengths[^1].ShouldBeLessThan(WindowSeconds * AudioChunk.SampleRate, "the frozen audio is still not decoded twice");
+    }
+
+    /// <summary>
+    /// Keeps a piece as it is, ending it with a full stop as the speech model would, and
+    /// lower-cases the first letter of a continuation, as the real cleaner does when the
+    /// sentence carries on.
+    /// </summary>
+    private sealed class ContinuingCleaner : ITranscriptCleaner
+    {
+        public List<string> Pieces { get; } = [];
+        public string Name => "continuing";
+
+        public Task<string?> CleanAsync(string text, CancellationToken cancellationToken) => Task.FromResult<string?>(text);
+
+        public Task<string?> CleanAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>(precedingCleaned is null ? text : char.ToLowerInvariant(text[0]) + text[1..]);
+
+        public Task<string?> CleanPieceAsync(string text, string? precedingCleaned, CancellationToken cancellationToken)
+        {
+            Pieces.Add(text);
+            return Task.FromResult<string?>(text + ".");
+        }
+    }
+
     /// <summary>Returns nothing for its first call, then upper-cases.</summary>
     private sealed class FailFirstCleaner : ITranscriptCleaner
     {

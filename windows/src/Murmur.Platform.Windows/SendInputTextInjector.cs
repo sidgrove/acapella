@@ -138,7 +138,44 @@ public sealed class SendInputTextInjector : ITextInjector
     [DllImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
     private static extern uint MapVirtualKey(uint code, uint mapType);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GUITHREADINFO
+    {
+        public uint Size, Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public RECT CaretRect;
+    }
+
     private static readonly int InputSize = Marshal.SizeOf<INPUT>();
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The foreground window and the control with keyboard focus inside it. Two dictations
+    /// that see the same pair went into the same field; a click elsewhere changes it.
+    /// </remarks>
+    public string? FocusTarget
+    {
+        get
+        {
+            var window = GetForegroundWindow();
+            if (window == IntPtr.Zero) return null;
+            var info = new GUITHREADINFO { Size = (uint)Marshal.SizeOf<GUITHREADINFO>() };
+            var focus = GetGUIThreadInfo(GetWindowThreadProcessId(window, IntPtr.Zero), ref info) ? info.Focus : IntPtr.Zero;
+            return $"{window:X}/{focus:X}";
+        }
+    }
 
     /// <summary>Called to place text on the clipboard and paste it.</summary>
     /// <remarks>

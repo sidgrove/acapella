@@ -127,7 +127,9 @@ public sealed record DictionaryWarning(string Message)
             }
         }
 
-        if (string.Equals(entry.Write.Trim(), trigger, StringComparison.OrdinalIgnoreCase))
+        // Ordinal, not case-insensitive: "codex -> Codex" changes the text and is a
+        // perfectly good entry.
+        if (string.Equals(entry.Write.Trim(), trigger, StringComparison.Ordinal))
         {
             warnings.Add(new DictionaryWarning(
                 $"This rewrites “{trigger}” to itself, so it will never change anything."));

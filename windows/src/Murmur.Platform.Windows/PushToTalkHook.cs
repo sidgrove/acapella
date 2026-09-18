@@ -208,6 +208,11 @@ public sealed class PushToTalkHook : IHotkeySource
     /// <inheritdoc />
     public bool IsTriggerHeld => (GetAsyncKeyState(_chord.TriggerKey) & 0x8000) != 0;
 
+    private long _userKeyPresses;
+
+    /// <inheritdoc />
+    public long UserKeyPresses => Interlocked.Read(ref _userKeyPresses);
+
     /// <summary>How long <see cref="Start"/> waits for the hook thread to report in.</summary>
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(3);
 
@@ -427,6 +432,7 @@ public sealed class PushToTalkHook : IHotkeySource
         if (_capturing) return Capture(Normalize(e), isDown);
 
         var key = Normalize(e);
+        if (isDown && !_chord.Involves(key)) Interlocked.Increment(ref _userKeyPresses);
         if (key == VK_ESCAPE && isDown) _notifications.Post(() => CancelPressed?.Invoke(this, EventArgs.Empty));
 
         switch (_chord.Feed(key, isDown))

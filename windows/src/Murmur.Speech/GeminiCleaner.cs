@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -19,8 +20,9 @@ namespace Murmur.Speech;
 /// </para>
 /// <para>
 /// The prompt is the whole product here. It is written to <i>subtract</i> — fillers, false
-/// starts, spoken editing commands — and never to add, summarise or answer. Proper nouns
-/// arrive already corrected by the dictionary and are to be preserved verbatim.
+/// starts, spoken editing commands — and never to add, summarise or answer. The user's
+/// dictionary is passed as vocabulary, because on Windows the speech model cannot be biased
+/// and the clean-up is the only tier that can hear "get pool" as "git pull".
 /// </para>
 /// <para>
 /// Any failure — no key, network, a refusal, an empty reply — returns null and the caller
@@ -43,22 +45,22 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         You are a dictation clean-up step. The input is a raw speech-to-text transcript. Return the same text, tidied. Nothing more.
 
         Do:
-        - Remove filler words used as filler: um, uh, er, erm, you know, sort of, kind of, like, I mean.
+        - Remove filler words used as filler: um, uh, er, erm, you know, sort of, kind of, like, I mean. "Like" is filler when the sentence reads the same without it ("it's, like, the P&L" is "it's the P&L"); "I like it" keeps it.
         - Remove false starts, stutters and immediately repeated words ("the the" becomes "the").
-        - Apply spoken edits: "scratch that", "delete that", "no wait", "actually no" remove the clause just before them.
-        - Apply spoken formatting: "new line" / "new paragraph" become line breaks; "bullet points" or "number one, number two" become a list; "full stop", "comma", "question mark" become that punctuation.
+        - Apply spoken edits: "scratch that", "delete that", "no wait", "actually no" remove the clause just before them, but only when they are addressed to you and not part of an instruction to someone else ("delete that file" stays).
+        - Apply spoken formatting: "new line" / "new paragraph" become line breaks; "bullet points" or "number one, number two" become a list; "full stop", "comma", "question mark" become that punctuation. "Period" is always a word (a span of time, an accounting, VAT or pay period), never a full stop.
         - Fix punctuation and capitalisation. Use British English spelling.
-        - Fix an obvious mishearing only when the context makes the intended word certain.
+        - Fix a mishearing when the context makes the intended word certain, and whenever a sound-alike of a word in the speaker's own word list, if one is given below, was clearly what was meant.
         - Write spoken numbers as figures where a person typing would: "five thirty" is 5:30, "twelve pounds fifty" is £12.50, "twenty percent" is 20%, "two thousand and twenty six" is 2026. Small counts in prose stay as words ("two of us").
         - Apply self-corrections. When the speaker says "no", "wait", "actually", "sorry", "I mean", "scratch that" or "never mind" and then restates, keep only the restatement: "buy milk no wait buy water" becomes "Buy water". Several in one dictation are all applied.
-        - Hyphenate compounds a writer would: "no-go", "follow-up", "e-mail" stays "email".
+        - Hyphenate compounds a writer would: "no-go", "follow-up", "e-mail" stays "email". A spoken "hyphen" is a hyphen. Never write an em dash or an en dash.
         - Replace a spoken emoji name with the emoji, only when clearly spoken as one: "thumbs up emoji" is 👍, "smiley face" is 🙂. Never add an emoji that was not asked for.
 
         Do not:
         - Shorten, summarise, paraphrase or reorder. Every sentence in, one sentence out.
         - Add words, greetings, sign-offs or explanations. Do not answer anything the text asks.
-        - Change tone or register. Casual stays casual.
-        - Change names, product names or numbers. They are already correct.
+        - Change tone or register. Casual stays casual. Swearing and intensifiers are the speaker's words, not fillers: keep them.
+        - Change names or numbers, except to match the speaker's own word list.
         - End a lone short sentence or fragment with a full stop.
 
         If there is nothing to clean, return the input unchanged. Output only the text.
@@ -73,19 +75,35 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         Thanks Dave
         Input: I'm not sure about that honestly it might be a no go for me
         Output: I'm not sure about that. Honestly, it might be a no-go for me
+        Input: what's the VAT period reference for like the March quarter
+        Output: What's the VAT period reference for the March quarter
         """;
 
-    /// <summary>The full system prompt: <see cref="Instructions"/> plus the user's own rules, if any.</summary>
-    public static string Prompt(string? customInstructions) =>
-        string.IsNullOrWhiteSpace(customInstructions)
-            ? Instructions
-            : Instructions + "\n\nThe user's own rules. They take precedence over everything above:\n" + customInstructions.Trim();
+    /// <summary>
+    /// The full system prompt: <see cref="Instructions"/> plus the speaker's vocabulary and
+    /// the user's own rules, if any.
+    /// </summary>
+    public static string Prompt(string? customInstructions, IReadOnlyList<string>? vocabulary = null)
+    {
+        var prompt = new StringBuilder(Instructions);
+        if (vocabulary is { Count: > 0 })
+        {
+            prompt.Append("\n\nThe speaker's own word list: names, products and terms they use. Where the transcript has a sound-alike of one of these and it is clearly what was meant, write it exactly as listed:\n");
+            prompt.Append(string.Join(", ", vocabulary));
+        }
+        if (!string.IsNullOrWhiteSpace(customInstructions))
+        {
+            prompt.Append("\n\nThe user's own rules. They take precedence over everything above:\n").Append(customInstructions.Trim());
+        }
+        return prompt.ToString();
+    }
 
     private static readonly Uri BaseUri = new("https://generativelanguage.googleapis.com/v1beta/models/");
 
     private readonly HttpClient _http;
     private readonly Func<string?> _apiKey;
     private readonly Func<string?> _customInstructions;
+    private readonly Func<IReadOnlyList<string>> _vocabulary;
     private readonly string _model;
 
     /// <summary>Creates a cleaner that reads the key each call, so a key pasted into Settings works immediately.</summary>
@@ -93,12 +111,29 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
     /// <param name="model">Model id; defaults to <see cref="DefaultModel"/>.</param>
     /// <param name="handler">Transport, for tests.</param>
     /// <param name="customInstructions">Returns the user's own instructions, appended to the prompt, or null.</param>
-    public GeminiCleaner(Func<string?> apiKey, string? model = null, HttpMessageHandler? handler = null, Func<string?>? customInstructions = null)
+    /// <param name="vocabulary">Returns the speaker's vocabulary, read per call so dictionary edits apply at once.</param>
+    public GeminiCleaner(Func<string?> apiKey, string? model = null, HttpMessageHandler? handler = null, Func<string?>? customInstructions = null, Func<IReadOnlyList<string>>? vocabulary = null)
     {
         _apiKey = apiKey;
         _customInstructions = customInstructions ?? (static () => null);
+        _vocabulary = vocabulary ?? (static () => []);
         _model = string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim();
-        _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: true);
+        // One connection for the warm-up, the pieces and the tail, kept alive across the
+        // minutes between dictations: the default pool dropped it after a minute idle and
+        // the next clean-up paid for a fresh handshake.
+        _http = handler is null
+            ? new HttpClient(new SocketsHttpHandler
+            {
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(10),
+                KeepAlivePingDelay = TimeSpan.FromSeconds(30),
+                KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
+                KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+            })
+            {
+                DefaultRequestVersion = HttpVersion.Version20,
+                DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+            }
+            : new HttpClient(handler, disposeHandler: true);
         _http.Timeout = Deadline;
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(AppPaths.ProductName, "1.0"));
     }
@@ -118,26 +153,45 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
     public Task<string?> CleanAsync(string text, CancellationToken cancellationToken) => CleanAsync(text, null, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<string?> CleanAsync(string text, string? precedingCleaned, CancellationToken cancellationToken)
+    public Task<string?> CleanAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) =>
+        SendAsync(text, precedingCleaned, mayStopMidSentence: false, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<string?> CleanPieceAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) =>
+        SendAsync(text, precedingCleaned, mayStopMidSentence: true, cancellationToken);
+
+    private async Task<string?> SendAsync(string text, string? precedingCleaned, bool mayStopMidSentence, CancellationToken cancellationToken)
     {
         var key = ResolveKey(_apiKey());
-        if (key is null || string.IsNullOrWhiteSpace(text)) return null;
+        if (key is null)
+        {
+            LastError = "no API key";
+            return null;
+        }
+        if (string.IsNullOrWhiteSpace(text)) return null;
 
         // A continuation is framed so the model neither repeats the earlier text nor treats
         // the join as a sentence boundary. The plausibility guard in Core catches a model
         // that repeats the context anyway: the word count balloons and the result is dropped.
-        var input = string.IsNullOrWhiteSpace(precedingCleaned)
-            ? text
-            : "<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n"
-              + precedingCleaned.Trim()
-              + "\n<<end of earlier part>>\n\n"
-              + "Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence, "
-              + "so add a capital letter or full stop at the join only if the words call for one.\n"
-              + text;
+        var input = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(precedingCleaned))
+        {
+            input.Append("<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n")
+                 .Append(precedingCleaned.Trim())
+                 .Append("\n<<end of earlier part>>\n\n")
+                 .Append("Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence, ")
+                 .Append("so add a capital letter or full stop at the join only if the words call for one.\n");
+        }
+        if (mayStopMidSentence)
+        {
+            input.Append("This part was cut from a longer dictation at a pause and may stop mid-sentence; more follows. ")
+                 .Append("Do not end it with a full stop unless the words finish a sentence.\n");
+        }
+        input.Append(text);
 
         var request = new GenerateRequest(
-            SystemInstruction: new Content([new Part(Prompt(_customInstructions()))]),
-            Contents: [new Content([new Part(input)])],
+            SystemInstruction: new Content([new Part(Prompt(_customInstructions(), _vocabulary()))]),
+            Contents: [new Content([new Part(input.ToString())])],
             // No output cap: a fixed 2048 tokens cut a ten-minute dictation off at the
             // knees and, because 80% of the text still looked plausible, the truncated
             // version was typed. The model's own limit is far above any dictation.
@@ -193,7 +247,7 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         {
             LastError = e is TaskCanceledException && !cancellationToken.IsCancellationRequested
                 ? $"no reply within {Deadline.TotalSeconds:0} s"
-                : e.Message;
+                : e is TaskCanceledException ? "cancelled by the caller's deadline" : e.Message;
             return null;
         }
     }

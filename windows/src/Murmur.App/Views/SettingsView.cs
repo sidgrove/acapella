@@ -138,8 +138,11 @@ public sealed class SettingsView : UserControl
                 Text.Body("Full stop at the very end"),
                 fullStops,
                 Text.Muted("Chat messages and fragments read better without one. Questions and exclamation marks always stay.")),
-            Panels.SwitchRow("Spoken commands", "“New line”, “new paragraph”, “full stop”, “comma”, “question mark”, “scratch that” and so on become what they say.", _settings.Data.SpokenCommands, v => Save(_settings.Data with { SpokenCommands = v })),
-            Panels.SwitchRow("Remove ums and ers", "Standalone hesitations are dropped before anything else sees the text.", _settings.Data.RemoveFillers, v => Save(_settings.Data with { RemoveFillers = v })));
+            Panels.SwitchRow("Spoken commands", "“New line”, “new paragraph”, “full stop”, “comma”, “question mark”, “scratch that” and so on become what they say. “Period” is always a word.", _settings.Data.SpokenCommands, v => Save(_settings.Data with { SpokenCommands = v })),
+            Panels.SwitchRow("Remove ums and ers", "Standalone hesitations are dropped before anything else sees the text.", _settings.Data.RemoveFillers, v => Save(_settings.Data with { RemoveFillers = v })),
+            Panels.SwitchRow("No comma before “and”", "House style, applied to every result, including what the AI clean-up returns: “A, B and C”.", _settings.Data.NoCommaBeforeAnd, v => Save(_settings.Data with { NoCommaBeforeAnd = v })),
+            Panels.SwitchRow("British spellings", "“Optimize”, “color” and “behavior” from the speech model are written the British way. Code and file names are left alone.", _settings.Data.BritishSpelling, v => Save(_settings.Data with { BritishSpelling = v })),
+            Panels.SwitchRow("Join dictations in the same field", "When the next dictation goes straight into the same box, the space between them is typed for you, and the full stop the rule above removed goes back if a new sentence starts.", _settings.Data.JoinDictations, v => Save(_settings.Data with { JoinDictations = v })));
     }
 
     private static int FullStopIndex(TrailingFullStop rule) => rule switch { TrailingFullStop.Never => 1, TrailingFullStop.Keep => 2, _ => 0 };
@@ -215,6 +218,9 @@ public sealed class SettingsView : UserControl
             Panels.SwitchRow("Clean up with Gemini before typing",
                 "Tidies punctuation, applies self-corrections and writes numbers as figures, without changing your words. Your text goes to Google's API — about a twentieth of a penny per dictation on Flash. If it doesn't answer in eight seconds, or rewrites rather than tidies, the local text is typed instead.",
                 _settings.Data.AiCleanup, v => Save(_settings.Data with { AiCleanup = v })),
+            Panels.SwitchRow("Review long dictations as a whole",
+                "Off cleans a long dictation piece by piece while you are still talking, so the wait at the end is short. On sends the whole thing in one go once you stop, so every sentence is read with its neighbours: the best result, at roughly a second per hundred words.",
+                _settings.Data.ReviewWholeDictation, v => Save(_settings.Data with { ReviewWholeDictation = v })),
             Panels.Labelled("API key", key),
             Panels.Labelled("Model", model),
             Panels.Labelled("Your own instructions", custom),

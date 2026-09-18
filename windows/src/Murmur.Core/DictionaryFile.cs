@@ -187,7 +187,7 @@ public sealed class DictionaryFile
     [
         "# Acapella dictionary",
         "#",
-        "#   Anthropic                 a term — the engine is told this word exists",
+        "#   Anthropic                 a term — the AI clean-up is told this word exists",
         "#   cloud code -> Claude Code a correction — when you hear X, write Y",
         "#   # off: some rule -> Rule  a disabled entry",
         "#",

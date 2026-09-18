@@ -133,7 +133,7 @@ public sealed class ParakeetTranscriber : ITranscriber
         stream.AcceptWaveform(AudioChunk.SampleRate, samples.ToArray());
         _recognizer.Decode(stream);
 
-        return ValueTask.FromResult(stream.Result.Text?.Trim() ?? string.Empty);
+        return ValueTask.FromResult(TranscriptNormaliser.Apply(stream.Result.Text?.Trim() ?? string.Empty));
     }
 
     /// <inheritdoc />
