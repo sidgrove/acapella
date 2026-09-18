@@ -59,6 +59,22 @@ public sealed class ResilienceTests
 
         await DictateAsync(hotkey, engine, capture);
 
+        // Digital silence from an open stream is a muted device, and the notice says so.
+        dropped.ShouldHaveSingleItem().ShouldBe("Nothing heard. Is the mic muted?");
+    }
+
+    [Fact]
+    public async Task Quiet_room_tone_is_just_nothing_heard()
+    {
+        var hotkey = new FakeHotkeySource();
+        var capture = FakeAudioCapture.Tone(1.0, amplitude: 0.001f);
+        var dropped = new List<string>();
+
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber("x"), new RecordingTextInjector(), () => []);
+        engine.Dropped += (_, why) => dropped.Add(why);
+
+        await DictateAsync(hotkey, engine, capture);
+
         dropped.ShouldHaveSingleItem().ShouldBe("Nothing heard");
     }
 

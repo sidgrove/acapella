@@ -1001,6 +1001,13 @@ public sealed class DictationEngine : IAsyncDisposable
     public const float SilenceFloor = 0.002f;
 
     /// <summary>
+    /// A recording whose loudest sample is below this carried no room tone at all: a
+    /// muted device, not a quiet speaker. Room tone through any live microphone peaks
+    /// well above it.
+    /// </summary>
+    public const float DigitalSilencePeak = 0.0005f;
+
+    /// <summary>
     /// Playback peaking at or above this when the key was pressed is loud enough to have
     /// reached the microphone, so the pre-roll recorded under it is discarded.
     /// </summary>
@@ -1063,8 +1070,13 @@ public sealed class DictationEngine : IAsyncDisposable
                 return;
             }
 
-            Log.Info($"ignored {seconds:0.0}s of silence");
-            Dropped?.Invoke(this, "Nothing heard");
+            // The stream was open and delivering, so this is the microphone itself giving
+            // nothing: on Dave's desk a muted Wave XLR during a call, in bursts of two or
+            // three attempts that recover on their own. Say so, rather than "nothing heard".
+            var peak = 0f;
+            foreach (var sample in audio.Span) peak = Math.Max(peak, Math.Abs(sample));
+            Log.Warn($"ignored {seconds:0.0}s of silence (peak {peak:0.0000}; the microphone is delivering audio but no sound, muted?)");
+            Dropped?.Invoke(this, peak < DigitalSilencePeak ? "Nothing heard. Is the mic muted?" : "Nothing heard");
             return;
         }
 
