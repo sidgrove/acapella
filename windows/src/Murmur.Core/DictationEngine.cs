@@ -350,6 +350,14 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <summary>The generative clean-up, or null when none is configured.</summary>
     public ITranscriptCleaner? Cleaner { get; set; }
 
+    /// <summary>
+    /// The decision model, or null. Runs in the shadow for now: on every dictation it is
+    /// asked the questions the rules already answered, its answers are logged beside the
+    /// rules', and nothing waits for it or acts on it. A week of that log decides what it
+    /// gets to decide.
+    /// </summary>
+    public IDecisionModel? Decisions { get; set; }
+
     /// <summary>Whether <see cref="Cleaner"/> is used. Off means the raw path, always.</summary>
     public bool AiCleanup { get; set; }
 
@@ -881,7 +889,9 @@ public sealed class DictationEngine : IAsyncDisposable
                 cleaned = reply;
             }
 
-            return new SegmentClean(local, cleaned, applied, PieceText.JoinCleaned(soFar, cleaned));
+            var joined = PieceText.JoinCleaned(soFar, cleaned);
+            ShadowDecisions.AboutJoin(this, soFar, cleaned, joined);
+            return new SegmentClean(local, cleaned, applied, joined);
         }
         catch (Exception e)
         {
@@ -1143,6 +1153,7 @@ public sealed class DictationEngine : IAsyncDisposable
             if (InjectText) await SendToFocusedAppAsync($"\"{raw.Trim()}\" spoken alone").ConfigureAwait(false);
             return;
         }
+        ShadowDecisions.AboutDictation(this, raw, send);
         var (dictionaryText, applied) = new DictionaryCorrector(entries).Apply(content);
 
         // Then the rules: spoken commands and fillers, deterministically, so local-only mode
@@ -1201,6 +1212,7 @@ public sealed class DictationEngine : IAsyncDisposable
                     local = JoinText(string.Join(' ', earlier.Select(e => e!.Local)), tailLocal);
                     applied = [.. earlier.SelectMany(e => e!.Applied), .. tailApplied];
                     candidate = PieceText.JoinCleaned(soFar, tailCleaned);
+                    ShadowDecisions.AboutJoin(this, soFar, tailCleaned, candidate);
                     cleanedBy = tailCleaner.Name;
                     path = CleanupPath.Piecewise;
                     note = $"tail {tailLocal.Length} chars; {committed.Count} piece(s) cleaned during recording";

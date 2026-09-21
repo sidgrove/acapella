@@ -146,8 +146,10 @@ public sealed class Composition : IAsyncDisposable
                 HotkeyModifiers = settings.Data.PushToTalkModifiers,
                 // Key and model are read per call, so pasting a key into Settings works at once.
                 Cleaner = NewCleaner(settings, dictionary),
+                Decisions = new JevClient(() => settings.Data.JevApiKey, settings.Data.JevBaseUrl, settings.Data.JevModel),
             };
 
+            var jevBase = settings.Data.JevBaseUrl;
             settings.Changed += (_, _) =>
             {
                 engine.InjectText = settings.Data.InjectText;
@@ -174,6 +176,13 @@ public sealed class Composition : IAsyncDisposable
                 {
                     (engine.Cleaner as IDisposable)?.Dispose();
                     engine.Cleaner = NewCleaner(settings, dictionary);
+                }
+                // The key is read per call; only a new base or model needs a new client.
+                if (engine.Decisions is JevClient jev && (jev.Name != (string.IsNullOrWhiteSpace(settings.Data.JevModel) ? JevClient.DefaultModel : settings.Data.JevModel.Trim()) || jevBase != settings.Data.JevBaseUrl))
+                {
+                    jevBase = settings.Data.JevBaseUrl;
+                    jev.Dispose();
+                    engine.Decisions = new JevClient(() => settings.Data.JevApiKey, settings.Data.JevBaseUrl, settings.Data.JevModel);
                 }
             };
 

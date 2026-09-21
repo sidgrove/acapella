@@ -195,6 +195,43 @@ public sealed class SettingsView : UserControl
             if (_settings.Data.CustomInstructions != value) Save(_settings.Data with { CustomInstructions = value });
         });
 
+        var jevKey = Debounced(Field.Text("Vercel AI Gateway key, or leave blank to use AI_GATEWAY_API_KEY", _settings.Data.JevApiKey, secret: true), text =>
+        {
+            var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+            if (_settings.Data.JevApiKey != value) Save(_settings.Data with { JevApiKey = value });
+        });
+        var jevBase = Debounced(Field.Text(JevClient.DefaultBaseUrl, _settings.Data.JevBaseUrl ?? JevClient.DefaultBaseUrl), text =>
+        {
+            var value = string.IsNullOrWhiteSpace(text) || text.Trim() == JevClient.DefaultBaseUrl ? null : text.Trim();
+            if (_settings.Data.JevBaseUrl != value) Save(_settings.Data with { JevBaseUrl = value });
+        });
+        var jevModel = Debounced(Field.Text(JevClient.DefaultModel, _settings.Data.JevModel ?? JevClient.DefaultModel), text =>
+        {
+            var value = string.IsNullOrWhiteSpace(text) || text.Trim() == JevClient.DefaultModel ? null : text.Trim();
+            if (_settings.Data.JevModel != value) Save(_settings.Data with { JevModel = value });
+        });
+        var jevResult = Text.Muted(string.Empty);
+        var jevTest = new SgButton("Test Jev", SgButton.Kind.Ghost);
+        jevTest.Click += async (_, _) =>
+        {
+            jevTest.IsEnabled = false;
+            jevResult.Text = "Asking…";
+            try
+            {
+                using var jev = new JevClient(() => _settings.Data.JevApiKey, _settings.Data.JevBaseUrl, _settings.Data.JevModel);
+                var clock = Stopwatch.StartNew();
+                var answers = await jev.DecideAsync("Okay, finish up, send it.",
+                    [new DecisionQuestion("send", "noul", "The speaker finishes by telling the dictation app to send the message.")], CancellationToken.None).ConfigureAwait(true);
+                jevResult.Text = answers is null
+                    ? $"Failed: {jev.LastError ?? "no reply"}"
+                    : $"“Okay, finish up, send it.” → send command: {answers[0].Noul:0.00} probability, in {clock.ElapsedMilliseconds} ms";
+            }
+            finally
+            {
+                jevTest.IsEnabled = true;
+            }
+        };
+
         var result = Text.Muted(string.Empty);
         var test = new SgButton("Test with a sample", SgButton.Kind.Ghost);
         test.Click += async (_, _) =>
@@ -225,7 +262,14 @@ public sealed class SettingsView : UserControl
             Panels.Labelled("Model", model),
             Panels.Labelled("Your own instructions", custom),
             test,
-            result);
+            result,
+            Text.Body("Jev decisions"),
+            Text.Muted("TypeSafe's Jev answers small yes/no questions in about a tenth of a second: was that a send command, does this sentence carry on, is “period” the noun. For now it runs alongside the rules and its answers go to the log; nothing waits for it. Leave the key blank to switch it off."),
+            Panels.Labelled("Jev key", jevKey),
+            Panels.Labelled("Jev base URL", jevBase),
+            Panels.Labelled("Jev model", jevModel),
+            jevTest,
+            jevResult);
     }
 
     private StackPanel BuildBehaviourSection()

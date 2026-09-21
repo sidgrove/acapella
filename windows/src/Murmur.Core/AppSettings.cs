@@ -90,6 +90,18 @@ public sealed record SettingsData
     /// <summary>Gemini model id, or null for the default.</summary>
     public string? GeminiModel { get; set; }
 
+    /// <summary>
+    /// Key for Jev, the decision model, or null to use the <c>AI_GATEWAY_API_KEY</c>
+    /// environment variable. With no key the app's own rules decide everything, as before.
+    /// </summary>
+    public string? JevApiKey { get; set; }
+
+    /// <summary>Where Jev is reached. Null for Vercel's AI Gateway; <c>https://api.typesafe.ai</c> for TypeSafe directly.</summary>
+    public string? JevBaseUrl { get; set; }
+
+    /// <summary>Jev model id, or null for the default at the chosen base.</summary>
+    public string? JevModel { get; set; }
+
     /// <summary>Whether the push-to-talk key does anything. Off pauses the app without quitting.</summary>
     public bool IsEnabled { get; set; } = true;
 

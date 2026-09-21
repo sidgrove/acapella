@@ -343,6 +343,41 @@ public interface ITranscriptCleaner
     Task WarmUpAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
+/// <summary>One yes/no or pick-one question for a <see cref="IDecisionModel"/>.</summary>
+/// <param name="Key">Names the answer in the reply.</param>
+/// <param name="Kind">"noul" for a yes/no probability, "choice" for one of <paramref name="Criteria"/>.</param>
+/// <param name="Instructions">The question, phrased so that a high value means yes.</param>
+/// <param name="Criteria">For a choice, the options and what separates them; for a noul, optional "true"/"false" descriptions.</param>
+public sealed record DecisionQuestion(string Key, string Kind, string Instructions, IReadOnlyDictionary<string, string?>? Criteria = null);
+
+/// <summary>One answer from a <see cref="IDecisionModel"/>.</summary>
+/// <param name="Key">The question it answers.</param>
+/// <param name="Noul">Probability that the answer is yes, for a noul question.</param>
+/// <param name="Choice">The chosen option, for a choice question.</param>
+/// <param name="Confidence">How concentrated the probability was, 0…1; null when the model does not say.</param>
+public sealed record Decision(string Key, double? Noul, string? Choice, double? Confidence);
+
+/// <summary>
+/// A model that makes small typed decisions about text, quickly, with a probability
+/// attached: is this a command, does this sentence carry on, is "period" the noun.
+/// </summary>
+/// <remarks>
+/// Not a text model: it cannot rewrite anything, which is exactly why it can be called on
+/// every dictation without the wait. A null reply means the decision was not available and
+/// the caller's own rule stands.
+/// </remarks>
+public interface IDecisionModel
+{
+    /// <summary>A short name for the log, e.g. "typesafe-ai/jev".</summary>
+    string Name { get; }
+
+    /// <summary>Answers every question about <paramref name="state"/> in one call, or returns null.</summary>
+    Task<IReadOnlyList<Decision>?> DecideAsync(string state, IReadOnlyList<DecisionQuestion> questions, CancellationToken cancellationToken);
+
+    /// <summary>Why the most recent call returned null, for the log.</summary>
+    string? LastError => null;
+}
+
 /// <summary>
 /// Wall-clock time, behind an interface so timing logic is testable.
 /// </summary>

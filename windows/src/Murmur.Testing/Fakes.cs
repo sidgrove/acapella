@@ -293,6 +293,30 @@ public sealed class FakeAudioDucker : IAudioDucker
     public void Restore() => Calls.Add("restore");
 }
 
+/// <summary>A decision model that records every question and answers from a script.</summary>
+public sealed class FakeDecisionModel : IDecisionModel
+{
+    /// <summary>Every call: the state and the question keys asked.</summary>
+    public List<(string State, IReadOnlyList<string> Keys)> Calls { get; } = [];
+
+    /// <summary>Answers by question key. Unlisted questions get no answer.</summary>
+    public Dictionary<string, Decision> Answers { get; } = [];
+
+    /// <summary>A gate a test can hold shut to prove nothing waits on the model.</summary>
+    public TaskCompletionSource Release { get; } = new();
+
+    /// <inheritdoc />
+    public string Name => "fake-decisions";
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Decision>?> DecideAsync(string state, IReadOnlyList<DecisionQuestion> questions, CancellationToken cancellationToken)
+    {
+        Calls.Add((state, questions.Select(q => q.Key).ToList()));
+        await Release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return questions.Where(q => Answers.ContainsKey(q.Key)).Select(q => Answers[q.Key]).ToList();
+    }
+}
+
 /// <summary>A clock you advance by hand.</summary>
 public sealed class FakeClock : IClock
 {
