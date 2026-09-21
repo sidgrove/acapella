@@ -88,7 +88,7 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         var prompt = new StringBuilder(Instructions);
         if (vocabulary is { Count: > 0 })
         {
-            prompt.Append("\n\nThe speaker's own word list: names, products and terms they use. Where the transcript has a sound-alike of one of these and it is clearly what was meant, write it exactly as listed:\n");
+            prompt.Append("\n\nThe speaker's own word list: names, products and terms they use. Where the transcript has a sound-alike of one of these and the words around it make that meaning certain, write it exactly as listed. An ordinary word that merely sounds similar (\"whispers\", \"zero-rated\") stays as it is:\n");
             prompt.Append(string.Join(", ", vocabulary));
         }
         if (!string.IsNullOrWhiteSpace(customInstructions))

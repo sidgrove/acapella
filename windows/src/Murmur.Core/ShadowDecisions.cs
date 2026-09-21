@@ -117,7 +117,8 @@ public static partial class ShadowDecisions
                 var answers = await model.DecideAsync(state, questions, CancellationToken.None).ConfigureAwait(false);
                 if (answers is null)
                 {
-                    Log.Warn($"jev {about}: no answer ({model.LastError ?? "no reason given"}) after {clock.ElapsedMilliseconds} ms");
+                    // No key means the model is simply not in use; nothing to say about it.
+                    if (model.LastError != "no API key") Log.Warn($"jev {about}: no answer ({model.LastError ?? "no reason given"}) after {clock.ElapsedMilliseconds} ms");
                     return;
                 }
                 var said = string.Join(" ", answers.Select(a => a.Noul is { } p ? $"{a.Key}={p:0.00}" : $"{a.Key}={a.Choice}{(a.Confidence is { } c ? $"({c:0.00})" : string.Empty)}"));
