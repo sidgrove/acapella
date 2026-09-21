@@ -17,6 +17,14 @@ public sealed class PieceTextTests
     [InlineData("", "x", "x")]
     [InlineData("x", "", "x")]
     [InlineData("Cell J.", "3, I think", "Cell J. 3, I think")]
+    [InlineData("I want this to be more like the groups mapping", "And also, chart of accounts", "I want this to be more like the groups mapping. And also, chart of accounts")]
+    [InlineData("software companies in the accounting industry", "Keep it human-led", "software companies in the accounting industry. Keep it human-led")]
+    [InlineData("software companies in the accounting industry", "I think so", "software companies in the accounting industry I think so")]
+    [InlineData("software companies in the accounting industry", "I'm sure", "software companies in the accounting industry I'm sure")]
+    [InlineData("software companies in the accounting industry", "HMRC said no", "software companies in the accounting industry HMRC said no")]
+    [InlineData("THE QUICK BROWN FOX JUMPED", "OVER THE LAZY DOG", "THE QUICK BROWN FOX JUMPED OVER THE LAZY DOG")]
+    [InlineData("the live P&L,", "Balance sheet", "the live P&L, Balance sheet")]
+    [InlineData("we did it", "and then", "we did it and then")]
     public void A_stop_the_cut_put_there_goes_when_the_sentence_carries_on(string first, string second, string expected) =>
         PieceText.JoinCleaned(first, second).ShouldBe(expected);
 

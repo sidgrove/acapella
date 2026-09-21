@@ -42,9 +42,21 @@ public static class PieceText
         {
             head = head[..^1];
         }
+        // The converse: the piece was cut exactly at a sentence end, its stop was taken as
+        // artificial, and the cleaner then opened the continuation with a capital. Seen
+        // on 2026-09-21 as "the groups mapping And also" and "industry Keep it". A
+        // capital "I", an acronym or a name in capitals says nothing about sentences;
+        // only an ordinary capitalised word counts.
+        else if (char.IsLetterOrDigit(head[^1]) && StartsNewSentence(tail))
+        {
+            head += ".";
+        }
 
         return head + " " + tail;
     }
+
+    private static bool StartsNewSentence(string text) =>
+        text.Length >= 2 && char.IsUpper(text[0]) && char.IsLower(text[1]) && !(text[0] == 'I' && text[1] == '\'');
 
     /// <summary>
     /// Whether <paramref name="raw"/> ends in the full stop the speech model adds to any
