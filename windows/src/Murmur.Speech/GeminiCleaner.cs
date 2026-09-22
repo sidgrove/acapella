@@ -179,8 +179,9 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
             input.Append("<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n")
                  .Append(precedingCleaned.Trim())
                  .Append("\n<<end of earlier part>>\n\n")
-                 .Append("Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence, ")
-                 .Append("so add a capital letter or full stop at the join only if the words call for one.\n");
+                 .Append("Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence. ")
+                 .Append("If the earlier part's last sentence is finished and a new one starts at the join, begin your reply with a full stop and a space, ")
+                 .Append("which closes the earlier part (\". I'm not sure if that works\"). Otherwise carry the sentence on, in lower case apart from words that always take a capital.\n");
         }
         if (mayStopMidSentence)
         {

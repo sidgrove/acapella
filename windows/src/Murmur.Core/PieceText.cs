@@ -31,14 +31,33 @@ public static class PieceText
     /// </summary>
     public static string JoinCleaned(string first, string second)
     {
-        if (first.Length == 0) return second;
-        if (second.Length == 0) return first;
-
-        var head = first.TrimEnd();
         var tail = second.TrimStart();
-        if (tail.Length == 0) return first;
+        var opensSentence = OpensSentence(tail);
+        if (opensSentence) tail = Capitalise(tail[1..].TrimStart());
 
-        if (head.Length >= 2 && head[^1] == '.' && char.IsLetter(head[^2]) && char.IsLower(tail[0]) && !EndsWithAbbreviation(head))
+        if (first.Length == 0) return opensSentence ? tail : second;
+        if (tail.Length == 0) return first;
+        var head = first.TrimEnd();
+        if (head.Length == 0) return tail;
+
+        // The cleaner of the continuation said a new sentence starts at the join. It is the
+        // only one that can: "I", "I'm" and a lower-case continuation say nothing either way,
+        // and on 2026-09-22 "hierarchy I feel like" and "amend just bear in mind" ran on.
+        if (opensSentence)
+        {
+            if (head[^1] is ',' or ';' or ':') head = head[..^1] + ".";
+            else if (head[^1] is not ('.' or '?' or '!')) head += ".";
+            return head + " " + tail;
+        }
+
+        if (head.Length >= 2 && head[^1] == '.' && char.IsLetter(head[^2]) && EndsWithDanglingWord(head))
+        {
+            // No sentence ends on "of" or "the", so a stop there is the cut's, whatever the
+            // continuation's case: "making the most effective use of. Jev and Gen AI".
+            head = head[..^1];
+            tail = LowerCaseIfOrdinary(tail);
+        }
+        else if (head.Length >= 2 && head[^1] == '.' && char.IsLetter(head[^2]) && char.IsLower(tail[0]) && !EndsWithAbbreviation(head))
         {
             head = head[..^1];
         }
@@ -57,6 +76,58 @@ public static class PieceText
 
     private static bool StartsNewSentence(string text) =>
         text.Length >= 2 && char.IsUpper(text[0]) && char.IsLower(text[1]) && !(text[0] == 'I' && text[1] == '\'');
+
+    /// <summary>
+    /// The mark the cleaner of a continuation opens its reply with when a new sentence starts
+    /// at the join: a single full stop, never an ellipsis.
+    /// </summary>
+    public const string NewSentenceMark = ". ";
+
+    /// <summary>Whether a cleaned continuation opens with <see cref="NewSentenceMark"/>.</summary>
+    public static bool OpensSentence(string cleaned) =>
+        cleaned.Length >= 1 && cleaned[0] == '.' && (cleaned.Length == 1 || cleaned[1] != '.');
+
+    /// <summary>A cleaned continuation without <see cref="NewSentenceMark"/>, for checks that count words.</summary>
+    public static string WithoutNewSentenceMark(string cleaned)
+    {
+        var trimmed = cleaned.TrimStart();
+        return OpensSentence(trimmed) ? trimmed[1..].TrimStart() : cleaned;
+    }
+
+    /// <summary>
+    /// Words no sentence ends on, so a full stop after one was put there by the cut. Kept
+    /// short on purpose: "log in.", "that's what it is." and "plan A." all end sentences.
+    /// </summary>
+    private static readonly HashSet<string> DanglingWords = new(StringComparer.Ordinal)
+    {
+        "an", "the", "of", "into", "onto", "and", "or", "but", "nor", "than",
+        "because", "whereas", "whether", "whereby", "my", "your", "our", "their",
+    };
+
+    /// <summary>Opening words that are only capitalised because a sentence was taken to start.</summary>
+    private static readonly HashSet<string> OrdinaryOpeners = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "a", "an", "the", "this", "that", "these", "those", "it", "its", "my", "your", "our", "their",
+        "his", "her", "what", "which", "how", "some", "any", "all", "each", "every", "more", "most",
+    };
+
+    private static bool EndsWithDanglingWord(string text)
+    {
+        var body = text[..^1];
+        var start = body.Length;
+        while (start > 0 && char.IsLetter(body[start - 1])) start--;
+        return DanglingWords.Contains(body[start..]);
+    }
+
+    private static string LowerCaseIfOrdinary(string text)
+    {
+        var end = 0;
+        while (end < text.Length && char.IsLetter(text[end])) end++;
+        return end > 0 && OrdinaryOpeners.Contains(text[..end]) ? char.ToLowerInvariant(text[0]) + text[1..] : text;
+    }
+
+    private static string Capitalise(string text) =>
+        text.Length > 0 && char.IsLower(text[0]) ? char.ToUpperInvariant(text[0]) + text[1..] : text;
 
     /// <summary>
     /// Whether <paramref name="raw"/> ends in the full stop the speech model adds to any

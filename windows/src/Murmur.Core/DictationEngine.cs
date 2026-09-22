@@ -903,7 +903,7 @@ public sealed class DictationEngine : IAsyncDisposable
                 var forCleaner = PieceText.WithoutArtificialStop(ForCleaner(text));
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 var reply = await cleaner.CleanPieceAsync(forCleaner, soFar.Length > 0 ? soFar : null, CancellationToken.None).ConfigureAwait(false);
-                if (reply is null || !CleanupGuard.IsPlausible(forCleaner, reply))
+                if (reply is null || !CleanupGuard.IsPlausible(forCleaner, PieceText.WithoutNewSentenceMark(reply)))
                 {
                     Log.Warn($"AI clean-up of a {local.Length}-char piece during recording failed after {clock.ElapsedMilliseconds} ms ({(reply is null ? cleaner.LastError ?? "no reason given" : "rewrote rather than tidied")})");
                     return null;
@@ -1223,7 +1223,7 @@ public sealed class DictationEngine : IAsyncDisposable
                 {
                     tailCleaned = await CleanWithinBudgetAsync(() => tailCleaner.CleanAsync(tailForCleaner, soFar, budget.Token), budget.Token).ConfigureAwait(false);
                     if (tailCleaned is null) note = $"tail not cleaned ({(budget.IsCancellationRequested ? $"not within {CleanupBudget.TotalSeconds:0} s" : tailCleaner.LastError ?? "no reason given")})";
-                    else if (!CleanupGuard.IsPlausible(tailForCleaner, tailCleaned))
+                    else if (!CleanupGuard.IsPlausible(tailForCleaner, PieceText.WithoutNewSentenceMark(tailCleaned)))
                     {
                         note = $"tail rewrote rather than tidied ({tailForCleaner.Length} -> {tailCleaned.Length} chars)";
                         tailCleaned = null;
