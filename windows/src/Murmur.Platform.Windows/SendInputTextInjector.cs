@@ -177,6 +177,10 @@ public sealed class SendInputTextInjector : ITextInjector
         }
     }
 
+    /// <inheritdoc />
+    public Task<string?> ReadTextBeforeCaretAsync(int maxLength, CancellationToken cancellationToken) =>
+        Task.Run(() => UiaCaretReader.Read(maxLength), cancellationToken);
+
     /// <summary>Called to place text on the clipboard and paste it.</summary>
     /// <remarks>
     /// Injected rather than called directly because clipboard access is UI-framework specific

@@ -170,6 +170,12 @@ public sealed class DictationEngine : IAsyncDisposable
         /// </summary>
         public int SkipSamples;
 
+        /// <summary>
+        /// The text before the caret when the key went down, still being read on a pool
+        /// thread. Null when the setting is off.
+        /// </summary>
+        public Task<string?>? CaretContext;
+
         public void Dispose() => Stop.Dispose();
     }
 
@@ -284,6 +290,13 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>Whether the next dictation into the same field is joined to the last with a space or a full stop.</summary>
     public bool JoinDictations { get; set; } = true;
+
+    /// <summary>
+    /// Whether a dictation started part way through a sentence loses the capital on its
+    /// first word. The text before the caret is read at key-down, while the user is still
+    /// talking, and only collected at delivery.
+    /// </summary>
+    public bool MatchCaseToCaret { get; set; } = true;
 
     /// <summary>
     /// How long the AI tier is given after the key-up, over everything it still has to do,
@@ -569,6 +582,16 @@ public sealed class DictationEngine : IAsyncDisposable
             // Owned by the engine until EndAsync or AbandonAsync hands it on; disposed
             // once its transcription (or its cancellation) has finished with the token.
             session = new Session { StartedAt = _clock.Now };
+
+            // First thing at key-down, on a pool thread, so an app that answers slowly
+            // cannot hold the recording. Nothing waits for it before delivery.
+            if (MatchCaseToCaret && InjectText)
+            {
+                var injector = _injector;
+                var stop = session.Stop.Token;
+                session.CaretContext = Task.Run(() => injector.ReadTextBeforeCaretAsync(CaretCase.ContextLength, stop), CancellationToken.None);
+            }
+
             lock (_bufferLock) _current = session;
             SetPreview(string.Empty);
             Changed?.Invoke(this, EventArgs.Empty);
@@ -1309,10 +1332,18 @@ public sealed class DictationEngine : IAsyncDisposable
         {
             var target = _injector.FocusTarget;
             var prefix = JoinDictations ? ContinuationRule.Prefix(_lastDelivery, corrected, target, _hotkey.UserKeyPresses, _clock.Now) : string.Empty;
+
+            // Joining to the last dictation already decides the first letter; the caret
+            // only has a say when there is no join.
+            var typed = corrected;
+            var caretNote = string.Empty;
+            if (prefix.Length == 0) (typed, caretNote) = await MatchCaseAsync(session, corrected).ConfigureAwait(false);
+
             var insertionClock = System.Diagnostics.Stopwatch.StartNew();
-            delivered = await _injector.InjectAsync(prefix + corrected, CancellationToken.None).ConfigureAwait(false);
+            delivered = await _injector.InjectAsync(prefix + typed, CancellationToken.None).ConfigureAwait(false);
             Log.Info($"text insertion: {insertionClock.ElapsedMilliseconds} ms; accepted={delivered}"
-                   + (prefix.Length == 0 ? string.Empty : $"; joined to the last dictation with \"{prefix}\""));
+                   + (prefix.Length == 0 ? string.Empty : $"; joined to the last dictation with \"{prefix}\"")
+                   + caretNote);
             _lastDelivery = delivered ? new TypedDelivery(corrected, stopDropped, target, _hotkey.UserKeyPresses, _clock.Now, send) : null;
         }
 
@@ -1328,6 +1359,40 @@ public sealed class DictationEngine : IAsyncDisposable
         else if (send)
         {
             await SendToFocusedAppAsync("send word").ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>How long delivery will wait for a caret read that has not finished. Normally it is long done.</summary>
+    private static readonly TimeSpan CaretGrace = TimeSpan.FromMilliseconds(40);
+
+    /// <summary>
+    /// <paramref name="text"/> with the capital taken off if the caret was mid-sentence when
+    /// recording began, and a log fragment saying what was known.
+    /// </summary>
+    /// <remarks>
+    /// The read started at key-down and the user has since talked for a while, so it is
+    /// almost always finished; the small grace only matters for a very short dictation. A
+    /// read that has not answered, failed or found nothing leaves the text exactly as it was.
+    /// </remarks>
+    private static async Task<(string Text, string Note)> MatchCaseAsync(Session session, string text)
+    {
+        if (session.CaretContext is not { } read) return (text, string.Empty);
+
+        try
+        {
+            if (!read.IsCompleted) await Task.WhenAny(read, Task.Delay(CaretGrace)).ConfigureAwait(false);
+            if (!read.IsCompletedSuccessfully) return (text, "; caret context: not ready");
+            if (read.Result is not { } before) return (text, "; caret context: unavailable in this app");
+
+            var typed = CaretCase.Apply(text, before);
+            return (typed, CaretCase.IsMidSentence(before)
+                ? (ReferenceEquals(typed, text) ? "; caret context: mid-sentence, capital kept" : "; caret context: mid-sentence, capital dropped")
+                : "; caret context: sentence start");
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"Caret context read failed: {e.Message}");
+            return (text, string.Empty);
         }
     }
 

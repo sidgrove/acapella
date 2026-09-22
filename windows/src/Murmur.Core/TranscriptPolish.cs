@@ -160,7 +160,7 @@ public static class CleanupGuard
     /// Utterances with fewer words than this are not worth a round trip. The rules layer
     /// already capitalises and punctuates them, and the trip costs 500-900 ms.
     /// </summary>
-    public const int MinimumWords = 5;
+    public const int MinimumWords = 3;
 
     /// <summary>A result with fewer than this share of the input's words was summarised.</summary>
     public const double MinimumRatio = 0.55;
@@ -188,8 +188,11 @@ public static class CleanupGuard
         var before = Words(raw);
         var after = Words(cleaned);
 
+        // A short utterance is often a question or an instruction, which a model may answer
+        // or obey, and an answer is longer than the question, so additions get only 1 word of
+        // slack there; dropping fillers keeps the full slack.
         var floor = Math.Min(before - Slack, (int)Math.Ceiling(before * MinimumRatio));
-        var ceiling = Math.Max(before + Slack, (int)Math.Floor(before * MaximumRatio));
+        var ceiling = before < 6 ? before + 1 : Math.Max(before + Slack, (int)Math.Floor(before * MaximumRatio));
         return after >= Math.Max(1, floor) && after <= ceiling;
     }
 

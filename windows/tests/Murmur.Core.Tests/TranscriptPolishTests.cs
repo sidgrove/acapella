@@ -67,8 +67,15 @@ public sealed class CleanupGuardTests
     [Fact]
     public void Short_utterances_are_not_worth_a_round_trip()
     {
-        CleanupGuard.IsWorthCleaning("one two three four").ShouldBeFalse();
-        CleanupGuard.IsWorthCleaning("one two three four five").ShouldBeTrue();
+        CleanupGuard.IsWorthCleaning("one two").ShouldBeFalse();
+        CleanupGuard.IsWorthCleaning("one two three").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_short_question_is_not_allowed_to_grow_into_an_answer()
+    {
+        CleanupGuard.IsPlausible("does it have a game", "Does it have a game?").ShouldBeTrue();
+        CleanupGuard.IsPlausible("does it have a game", "No, it does not have a game.").ShouldBeFalse();
     }
 
     [Theory]

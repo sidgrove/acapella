@@ -255,11 +255,24 @@ public sealed class RecordingTextInjector : ITextInjector
     /// <summary>The control a test says has focus. Null, as for a platform that cannot tell, by default.</summary>
     public string? FocusTarget { get; set; }
 
+    /// <summary>What a test says is before the caret. Null, as for an app that cannot say, by default.</summary>
+    public string? CaretText { get; set; }
+
+    /// <summary>How long the fake takes to answer, for a slow or stuck app.</summary>
+    public TimeSpan CaretDelay { get; set; }
+
     /// <inheritdoc />
     public ValueTask<bool> InjectAsync(string text, CancellationToken cancellationToken)
     {
         Injected.Add(text);
         return ValueTask.FromResult(true);
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> ReadTextBeforeCaretAsync(int maxLength, CancellationToken cancellationToken)
+    {
+        if (CaretDelay > TimeSpan.Zero) await Task.Delay(CaretDelay, cancellationToken).ConfigureAwait(false);
+        return CaretText;
     }
 }
 

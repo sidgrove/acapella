@@ -188,6 +188,15 @@ public interface ITextInjector
     /// platform cannot tell. Two dictations with the same target landed in the same field.
     /// </summary>
     string? FocusTarget => null;
+
+    /// <summary>
+    /// The text just before the caret in the focused control, or null where the platform or
+    /// the control cannot say. Read at key-down and used at delivery, so a slow or stuck
+    /// answer costs the dictation nothing.
+    /// </summary>
+    /// <param name="maxLength">The most characters wanted.</param>
+    /// <param name="cancellationToken">Cancelled when the answer is no longer wanted.</param>
+    Task<string?> ReadTextBeforeCaretAsync(int maxLength, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
 }
 
 /// <summary>Turns audio into text.</summary>
