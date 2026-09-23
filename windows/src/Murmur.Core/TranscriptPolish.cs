@@ -157,10 +157,11 @@ public static partial class BritishSpellings
 public static class CleanupGuard
 {
     /// <summary>
-    /// Utterances with fewer words than this are not worth a round trip. The rules layer
-    /// already capitalises and punctuates them, and the trip costs 500-900 ms.
+    /// Every non-empty utterance is worth a round trip when Polished mode is enabled. A
+    /// single name or term is exactly where the local recogniser's best guess most often
+    /// needs the speaker's vocabulary and the generative model's context.
     /// </summary>
-    public const int MinimumWords = 3;
+    public const int MinimumWords = 1;
 
     /// <summary>A result with fewer than this share of the input's words was summarised.</summary>
     public const double MinimumRatio = 0.55;

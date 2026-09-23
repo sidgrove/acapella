@@ -64,11 +64,14 @@ public sealed class BritishSpellingTests
 /// <summary>The clean-up guard: a model that summarises never reaches the text field.</summary>
 public sealed class CleanupGuardTests
 {
-    [Fact]
-    public void Short_utterances_are_not_worth_a_round_trip()
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("one", true)]
+    [InlineData("one two", true)]
+    public void Every_non_empty_utterance_is_worth_cleaning(string input, bool expected)
     {
-        CleanupGuard.IsWorthCleaning("one two").ShouldBeFalse();
-        CleanupGuard.IsWorthCleaning("one two three").ShouldBeTrue();
+        CleanupGuard.IsWorthCleaning(input).ShouldBe(expected);
     }
 
     [Fact]

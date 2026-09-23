@@ -191,6 +191,26 @@ public sealed class EngineCleanupAndToggleTests
         completed.ShouldNotBeNull().CleanedBy.ShouldBe("stub");
     }
 
+    [Fact]
+    public async Task A_single_word_is_sent_to_the_cleaner_when_the_tier_is_on()
+    {
+        var hotkey = new FakeHotkeySource();
+        var injector = new RecordingTextInjector();
+        var cleaner = new StubCleaner("Jev");
+        var capture = FakeAudioCapture.Tone(0.6);
+        await using var engine = new DictationEngine(capture, hotkey, new FakeTranscriber("Jeff"), injector, () => [])
+        {
+            AiCleanup = true,
+            Cleaner = cleaner,
+        };
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+
+        cleaner.Calls.ShouldBe(1);
+        injector.Injected.ShouldBe(["Jev"]);
+    }
+
     /// <summary>
     /// The cleaner is shown the spoken commands as words, so "period", "full stop" and
     /// "new line" are judged in context; the local rules' reading is only the fallback.

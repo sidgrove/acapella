@@ -5,7 +5,7 @@ Press a key, say it, and it's typed. Acapella is a dictation app for Windows fro
 - **On this machine.** Speech is transcribed locally with NVIDIA's Parakeet model through sherpa-onnx. Nothing leaves your PC unless you turn on AI clean-up.
 - **Live as you speak.** The overlay shows the running transcript while you talk.
 - **Spoken commands that just work.** "New line", "full stop", "comma", "question mark", "scratch that". Ums and ers are dropped. All local, all predictable.
-- **Optional AI clean-up.** Gemini tidies punctuation, applies self-corrections and writes numbers as figures, with a guard that refuses anything that summarises or rewrites your words. Add your own rules in Settings.
+- **Optional AI clean-up.** Gemini tidies every non-empty dictation—even one word—fixing punctuation, self-corrections, likely mishearings and spoken numbers, with a guard that refuses anything that summarises or rewrites your words. Add your own rules in Settings.
 - **Your key, your way.** Record any key or chord (Ctrl, Alt, Shift, Win combinations included). Hold to talk, tap to toggle, or both. Escape cancels.
 - **Dictionary.** Teach it the names and terms it gets wrong.
 - **History.** Every dictation, with what was heard and what was typed.

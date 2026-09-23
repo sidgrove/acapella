@@ -50,12 +50,15 @@ public static partial class ShadowDecisions
         }
 
         var words = raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
-        if (words is > 0 and < CleanupGuard.MinimumWords)
+        // Gemini now sees even one word. Jev still records its independent judgement on
+        // the hardest short cases, so the log can show whether a bad result began as an
+        // ASR mishearing without making Jev a gate in front of the actual clean-up.
+        if (words is > 0 and <= 2)
         {
             questions.Add(new DecisionQuestion("mishearing", "noul",
                 "The transcript contains a word that is probably a mishearing or misspelling of what was meant, and would benefit from correction.",
                 null));
-            rules.Add("short=skipped");
+            rules.Add("short=gen-ai");
         }
 
         questions.Add(new DecisionQuestion("style", "choice",

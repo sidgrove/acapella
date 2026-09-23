@@ -253,7 +253,7 @@ public sealed class SettingsView : UserControl
 
         return Panels.Column(Tokens.Space.Base,
             Panels.SwitchRow("Clean up with Gemini before typing",
-                "Tidies punctuation, applies self-corrections and writes numbers as figures, without changing your words. Your text goes to Google's API — about a twentieth of a penny per dictation on Flash. If it doesn't answer in eight seconds, or rewrites rather than tidies, the local text is typed instead.",
+                "Tidies every non-empty dictation, even a single word: punctuation, self-corrections, numbers and likely mishearings, without changing your meaning. Your text goes to Google's API — about a twentieth of a penny per dictation on Flash. If it doesn't answer in eight seconds, or rewrites rather than tidies, the local text is typed instead.",
                 _settings.Data.AiCleanup, v => Save(_settings.Data with { AiCleanup = v })),
             Panels.SwitchRow("Review long dictations as a whole",
                 "Off cleans a long dictation piece by piece while you are still talking, so the wait at the end is short. On sends the whole thing in one go once you stop, so every sentence is read with its neighbours: the best result, at roughly a second per hundred words.",
