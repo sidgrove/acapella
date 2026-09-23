@@ -316,6 +316,7 @@ public sealed class EngineCleanupAndToggleTests
 
         hotkey.Press();
         await DrainAndReleaseAsync(hotkey, engine, capture);
+        injector.CaretText = "Sounds good";
         hotkey.Press();
         await Wait.UntilAsync(() => capture.Deliveries == 2);
         hotkey.Release();
@@ -323,6 +324,33 @@ public sealed class EngineCleanupAndToggleTests
 
         injector.Injected.ShouldBe(["Sounds good", ". Next point"]);
         completed.ShouldNotBeNull().Text.ShouldBe("Next point", "the history keeps the dictation itself, not the join");
+    }
+
+    [Fact]
+    public async Task A_chat_box_cleared_after_sending_does_not_get_a_leading_full_stop()
+    {
+        var hotkey = new FakeHotkeySource { UserKeyPresses = 3 };
+        var injector = new RecordingTextInjector { FocusTarget = "chat/box" };
+        var capture = FakeAudioCapture.Tone(0.6);
+        var transcriber = new FakeTranscriber("Previous thought.", "Okay, finish up.");
+        await using var engine = new DictationEngine(capture, hotkey, transcriber, injector, () => [])
+        {
+            FullStops = TrailingFullStop.Never,
+        };
+
+        hotkey.Press();
+        await DrainAndReleaseAsync(hotkey, engine, capture);
+
+        // Clicking Send clears the same control without producing a keyboard event. The
+        // focus identity and keypress count therefore still match, but the caret reader
+        // proves the previous dictation is no longer in the field.
+        injector.CaretText = string.Empty;
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Deliveries == 2);
+        hotkey.Release();
+        await Wait.UntilAsync(() => injector.Injected.Count == 2 && engine.State == DictationState.Idle);
+
+        injector.Injected.ShouldBe(["Previous thought", "Okay, finish up"]);
     }
 
     [Fact]

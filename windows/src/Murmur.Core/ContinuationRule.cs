@@ -36,16 +36,33 @@ public static class ContinuationRule
     /// <param name="target">The control that has focus now, or null where unknown.</param>
     /// <param name="keyPressesNow">The platform's user key-press count now.</param>
     /// <param name="now">The current time.</param>
-    public static string Prefix(TypedDelivery? previous, string next, string? target, long keyPressesNow, DateTimeOffset now)
+    /// <param name="beforeCaret">The current text immediately before the caret, or null where unavailable.</param>
+    public static string Prefix(TypedDelivery? previous, string next, string? target, long keyPressesNow, DateTimeOffset now, string? beforeCaret)
     {
         if (previous is null || next.Length == 0) return string.Empty;
         if (previous.PressedEnter) return string.Empty;
         if (target is null || previous.Target is null || target != previous.Target) return string.Empty;
         if (keyPressesNow != previous.KeyPressesAfter) return string.Empty;
         if (now - previous.At > Window) return string.Empty;
+        if (!StillInField(previous.Text, beforeCaret)) return string.Empty;
         if (previous.Text.Length == 0 || char.IsWhiteSpace(previous.Text[^1]) || char.IsWhiteSpace(next[0])) return string.Empty;
         if (!char.IsLetterOrDigit(next[0])) return string.Empty;
 
         return previous.StopDropped && char.IsUpper(next[0]) ? ". " : " ";
+    }
+
+    /// <summary>
+    /// Whether the text at the caret still ends with the last dictation. A chat app can
+    /// clear its composer after a click on Send without changing focus or producing a key
+    /// event; in that case every older continuation signal is stale.
+    /// </summary>
+    private static bool StillInField(string previous, string? beforeCaret)
+    {
+        var remembered = previous.TrimEnd();
+        var current = beforeCaret?.TrimEnd();
+        if (remembered.Length == 0 || string.IsNullOrEmpty(current)) return false;
+
+        var tailLength = Math.Min(remembered.Length, CaretCase.ContextLength);
+        return current.EndsWith(remembered[^tailLength..], StringComparison.Ordinal);
     }
 }

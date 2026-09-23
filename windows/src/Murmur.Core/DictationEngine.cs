@@ -585,7 +585,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
             // First thing at key-down, on a pool thread, so an app that answers slowly
             // cannot hold the recording. Nothing waits for it before delivery.
-            if (MatchCaseToCaret && InjectText)
+            if ((MatchCaseToCaret || JoinDictations) && InjectText)
             {
                 var injector = _injector;
                 var stop = session.Stop.Token;
@@ -1331,20 +1331,25 @@ public sealed class DictationEngine : IAsyncDisposable
         if (InjectText)
         {
             var target = _injector.FocusTarget;
-            var prefix = JoinDictations ? ContinuationRule.Prefix(_lastDelivery, corrected, target, _hotkey.UserKeyPresses, _clock.Now) : string.Empty;
+            // Joining requires positive evidence that the last dictation is still in the
+            // field. Clicking Send can clear a chat composer without changing its focus
+            // identity or the keyboard counter, which otherwise produces a stray leading
+            // full stop in the newly empty field.
+            var beforeCaret = session.CaretContext is { IsCompletedSuccessfully: true } context ? context.Result : null;
+            var prefix = JoinDictations ? ContinuationRule.Prefix(_lastDelivery, corrected, target, _hotkey.UserKeyPresses, _clock.Now, beforeCaret) : string.Empty;
 
             // Joining to the last dictation already decides the first letter; the caret
             // only has a say when there is no join.
             var typed = corrected;
             var caretNote = string.Empty;
-            if (prefix.Length == 0) (typed, caretNote) = await MatchCaseAsync(session, corrected).ConfigureAwait(false);
+            if (prefix.Length == 0 && MatchCaseToCaret) (typed, caretNote) = await MatchCaseAsync(session, corrected).ConfigureAwait(false);
 
             var insertionClock = System.Diagnostics.Stopwatch.StartNew();
             delivered = await _injector.InjectAsync(prefix + typed, CancellationToken.None).ConfigureAwait(false);
             Log.Info($"text insertion: {insertionClock.ElapsedMilliseconds} ms; accepted={delivered}"
                    + (prefix.Length == 0 ? string.Empty : $"; joined to the last dictation with \"{prefix}\"")
                    + caretNote);
-            _lastDelivery = delivered ? new TypedDelivery(corrected, stopDropped, target, _hotkey.UserKeyPresses, _clock.Now, send) : null;
+            _lastDelivery = delivered ? new TypedDelivery(typed, stopDropped, target, _hotkey.UserKeyPresses, _clock.Now, send) : null;
         }
 
         Completed?.Invoke(this, result);
