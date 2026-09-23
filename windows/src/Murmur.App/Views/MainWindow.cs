@@ -87,7 +87,7 @@ public sealed class MainWindow : ShellWindow
 
         if (_composition is not null) _overlay = new OverlayWindow(PlatformFactory.CreateWindowTweaks());
 
-        Content = Frame(AppPaths.ProductName, BuildBody(), BuildNav());
+        Content = Frame(AppPaths.ProductName, BuildBody());
         BindShortcuts();
         ShowSection(transcriptions: true);
         RefreshHint();
@@ -178,13 +178,13 @@ public sealed class MainWindow : ShellWindow
         RefreshHint();
     }
 
-    private StackPanel BuildNav()
+    private WrapPanel BuildNav()
     {
         var settings = new NavLink("Settings");
         _settingsLink = settings;
         settings.Click += (_, _) => ShowSettings();
-        var navigation = Panels.Row(Tokens.Space.Section, _transcriptionsLink, _dictionaryLink, settings);
-        navigation.Margin = new Thickness(0, Tokens.Space.Snug, 0, 0);
+        var navigation = Panels.Row(Tokens.Space.Tight, _transcriptionsLink, _dictionaryLink, settings);
+        navigation.Margin = new Thickness(0, 0, Tokens.Space.Roomy, 0);
         var mode = new SgButton(_composition?.Settings.Data.AiCleanup == true ? "Polished · switch to Instant" : "Instant · switch to Polished", SgButton.Kind.Quiet, compact: true);
         ToolTip.SetTip(mode, "Instant uses local transcription. Polished waits for optional Gemini clean-up. Change modes between recordings.");
         mode.IsEnabled = _composition is not null;
@@ -196,12 +196,18 @@ public sealed class MainWindow : ShellWindow
         if (_composition is not null)
             _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(() =>
                 mode.Content = _composition.Settings.Data.AiCleanup ? "Polished · switch to Instant" : "Instant · switch to Polished");
-        return Panels.Column(Tokens.Space.Snug, navigation, mode);
+        mode.VerticalAlignment = VerticalAlignment.Center;
+        return new WrapPanel
+        {
+            Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy, Tokens.Layout.ScrollGutter * 2, 0),
+            Children = { navigation, mode },
+        };
     }
 
     private Border BuildBody()
     {
         var body = new DockPanel { ClipToBounds = false };
+        body.Children.Add(Panels.Docked(BuildNav(), Dock.Top));
         body.Children.Add(Panels.Docked(BuildHero(), Dock.Top));
         body.Children.Add(Panels.Docked(_fault, Dock.Top));
         body.Children.Add(_sectionHost);
@@ -221,7 +227,7 @@ public sealed class MainWindow : ShellWindow
         _subtitle.Margin = new Thickness(Tokens.Space.Roomy, 0);
         _subtitle.VerticalAlignment = VerticalAlignment.Center;
         _bars.IsVisible = false;
-        var timer = Card.Standard(_counter, Tokens.Space.Snug);
+        var timer = Card.Subtle(_counter, Tokens.Space.Snug);
         timer.Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug);
         var readout = Panels.Row(Tokens.Space.Base, _bars, timer);
         var hero = new Grid

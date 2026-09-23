@@ -81,7 +81,7 @@ public sealed class SettingsView : UserControl
         _model = new ModelPart(composition);
         _model.ModelChanged += (_, _) => ModelChanged?.Invoke(this, EventArgs.Empty);
 
-        var body = Panels.Column(Tokens.Space.Roomy,
+        var body = Panels.Column(Tokens.Space.Card,
             Card.Standard(Panels.Section("Push to talk", "Which key, and how it works.", new KeyPart(composition))),
             Card.Standard(Panels.Section("Microphone", "Applies to the next recording.", BuildMicrophoneSection())),
             Card.Standard(Panels.Section("Sound effects", "Short cues through your default speakers or headphones.", Panels.Column(Tokens.Space.Roomy,

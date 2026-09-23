@@ -43,7 +43,7 @@ public sealed class TranscriptionsView : UserControl
         _search.MaxWidth = Tokens.Layout.ContentMaxWidth / 2;
         _search.HorizontalAlignment = HorizontalAlignment.Right;
 
-        _list = new StackPanel { Spacing = Tokens.Space.Base, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
+        _list = new StackPanel { Spacing = Tokens.Space.Card, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
         _count = Text.Caption(string.Empty);
 
         // Two clicks to wipe the history, and the button says so. One click used to

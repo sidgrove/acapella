@@ -18,7 +18,7 @@ namespace Murmur.App.Design;
 /// The rules that came with those values, in Dave's words where they exist:
 /// no gradients on components ("that little gradient thing on the card itself is shit");
 /// no coloured fills for selection ("I didn't want these AI slop coloured buttons");
-/// selection is elevation and weight, never hue; cards are opaque white; one sans for
+/// selection is a quiet neutral fill and weight, never hue; cards are opaque white; one sans for
 /// everything ("stick to DM Sans"); serif is for titles and hero numbers only.
 /// </para>
 /// <para><b>Views must not contain literal values.</b> Add a token instead.</para>
@@ -107,8 +107,8 @@ public static class Tokens
         /// <summary>Secondary text and inactive nav. <c>--muted</c>.</summary>
         public static Color Muted => Rgb(0x525672);
 
-        /// <summary>Tertiary text, icons at rest. <c>--sg-faint</c>.</summary>
-        public static Color Faint => Rgb(0x8B8FA6);
+        /// <summary>Accessible metadata ink, icons at rest. <c>--sg-faint</c>.</summary>
+        public static Color Faint => Rgb(0x686D88);
 
         /// <summary>Hairline dividers. <c>--sg-line</c>.</summary>
         public static Color Line => Rgb(0xDFE1EE);
@@ -123,7 +123,7 @@ public static class Tokens
         public static Color PanelBorder => Rgb(0xE3E6F0);
 
         /// <summary>Inner panel fill. <c>--surface</c>.</summary>
-        public static Color Surface => Rgb(0xF6F7FC);
+        public static Color Surface => Rgb(0xF7F8FC);
 
         /// <summary>The page wash. <c>--bg</c>.</summary>
         public static Color Wash => Rgb(0xF0F1F8);
@@ -318,13 +318,13 @@ public static class Tokens
         public const double HeroInsetHighlight = 0.16;
 
         /// <summary>Hero grid lines. <c>.grid-pattern</c>.</summary>
-        public const double Grid = 0.06;
+        public const double Grid = 0.03;
 
         /// <summary>The periwinkle hero bloom. <c>.hero</c> background.</summary>
-        public const double HeroPeri = 0.13;
+        public const double HeroPeri = 0.075;
 
         /// <summary>The peach hero bloom.</summary>
-        public const double HeroPeach = 0.10;
+        public const double HeroPeach = 0.06;
 
         /// <summary>The rose orb. <c>.orb-rose</c>, softened for a smaller canvas.</summary>
         public const double HeroRose = 0.14;
@@ -357,11 +357,11 @@ public static class Tokens
         /// <summary>Tabular figures, the <c>.num</c> class.</summary>
         public static FontFeatureCollection Tabular { get; } = [new FontFeature { Tag = "tnum" }];
 
-        /// <summary>Eyebrow labels. <c>.sg-hero-eyebrow</c>: 10.5px 700, 0.14em, uppercase.</summary>
-        public const double Eyebrow = 10.5;
+        /// <summary>Sentence-case labels, 11px medium weight.</summary>
+        public const double Eyebrow = 11;
 
-        /// <summary>Chips and badges. 10.5px 600, 0.02em.</summary>
-        public const double Badge = 10.5;
+        /// <summary>Chips and badges. 11px 600, 0.02em.</summary>
+        public const double Badge = 11;
 
         /// <summary>Captions and metadata.</summary>
         public const double Caption = 11;
@@ -369,8 +369,8 @@ public static class Tokens
         /// <summary>Pill nav labels and ghost buttons. 12px.</summary>
         public const double Small = 12;
 
-        /// <summary>Primary buttons and body. 13px.</summary>
-        public const double Body = 13;
+        /// <summary>Primary buttons and body. 14px.</summary>
+        public const double Body = 14;
 
         /// <summary>Base text, kit inputs. 14px.</summary>
         public const double Base = 14;
@@ -384,8 +384,8 @@ public static class Tokens
         /// <summary>The site's hero button label. 17px.</summary>
         public const double HeroButton = 17;
 
-        /// <summary>A page title in Very Vogue Text. <c>.sg-hero-title</c>: 28px.</summary>
-        public const double Title = 28;
+        /// <summary>A page title in Very Vogue Text. <c>.sg-hero-title</c>: 32px.</summary>
+        public const double Title = 32;
 
         /// <summary>The caption-strip title in Very Vogue Text.</summary>
         public const double CaptionTitle = 22;
@@ -396,8 +396,8 @@ public static class Tokens
         /// <summary>The site's mono label. <c>--label</c>: 11px, 0.16em, uppercase.</summary>
         public const double MonoLabel = 11;
 
-        /// <summary>Mono label tracking, 0.16em at 11px.</summary>
-        public const double MonoLabelTracking = 1.76;
+        /// <summary>Metadata label tracking: natural spacing.</summary>
+        public const double MonoLabelTracking = 0;
 
         /// <summary>The hero headline in Very Vogue, at app scale. Site h1 is 48–78px.</summary>
         public const double Headline = 46;
@@ -417,19 +417,19 @@ public static class Tokens
         /// <summary>The wordmark, DM Sans bold, tight.</summary>
         public const double Wordmark = 30;
 
-        /// <summary>Eyebrow tracking, 0.14em at 10.5px.</summary>
-        public const double EyebrowTracking = 1.47;
+        /// <summary>Sentence-case label tracking: natural spacing.</summary>
+        public const double EyebrowTracking = 0;
 
-        /// <summary>Chip tracking, 0.02em at 10.5px.</summary>
+        /// <summary>Chip tracking, 0.02em at 11px.</summary>
         public const double BadgeTracking = 0.21;
 
-        /// <summary>Title tracking, -0.02em at 28px.</summary>
-        public const double TitleTracking = -0.56;
+        /// <summary>Title tracking, +0.01em at 32px.</summary>
+        public const double TitleTracking = 0.32;
 
-        /// <summary>Heading tracking, <c>.display</c> -0.025em at 16px.</summary>
-        public const double HeadingTracking = -0.4;
+        /// <summary>Heading tracking: natural spacing.</summary>
+        public const double HeadingTracking = 0;
 
-        /// <summary>Button tracking, -0.01em at 13px.</summary>
+        /// <summary>Button tracking, a restrained -0.13px.</summary>
         public const double ButtonTracking = -0.13;
     }
 
@@ -462,8 +462,8 @@ public static class Tokens
         /// <summary>16</summary>
         public const double Roomy = 16;
 
-        /// <summary>20 — card padding in the app (<c>.sg-stat</c> 18/20).</summary>
-        public const double Card = 20;
+        /// <summary>24 — calm hub card padding.</summary>
+        public const double Card = 24;
 
         /// <summary>24</summary>
         public const double Wide = 24;
@@ -515,15 +515,11 @@ public static class Tokens
             Layer(1, 2, 0x000000, 0.03),
             [Layer(4, 16, 0x000000, 0.04), Layer(12, 32, 0x000000, 0.03)]);
 
-        /// <summary><c>--sg-surface-shadow</c>: the card at rest. Tight, three layers.</summary>
-        public static BoxShadows Card => new(
-            Layer(2, 4, 0x0F172A, 0.035),
-            [Layer(1, 2, 0x0F172A, 0.05), Layer(0, 1, 0x0F172A, 0.045)]);
+        /// <summary><c>--sg-surface-shadow</c>: calm cards have no shadow.</summary>
+        public static BoxShadows Card => default;
 
         /// <summary><c>.sg-card:hover</c>.</summary>
-        public static BoxShadows CardHover => new(
-            Layer(2, 4, 0x0F172A, 0.055),
-            [Layer(6, 8, 0x6874B4, 0.075), Layer(0, 1, 0x0F172A, 0.05)]);
+        public static BoxShadows CardHover => default;
 
         /// <summary><c>--shadow-lift</c>: floating surfaces, the overlay.</summary>
         public static BoxShadows Lift => new(
@@ -531,9 +527,7 @@ public static class Tokens
             [Layer(8, 24, 0x6874B4, 0.08), Layer(20, 48, 0x32326E, 0.06)]);
 
         /// <summary><c>.sg-empty</c>.</summary>
-        public static BoxShadows Empty => new(
-            Layer(1, 2, 0x1A1D2E, 0.04),
-            [Layer(6, 18, 0x6874B4, 0.06), Layer(24, 56, 0x32326E, 0.05)]);
+        public static BoxShadows Empty => default;
 
         /// <summary><c>.sg-btn-brand</c>, <c>.me-btn-ghost</c>: one hairline shadow.</summary>
         public static BoxShadows Button => new(Layer(1, 2, 0x0F172A, 0.06));
@@ -720,7 +714,7 @@ public static class Tokens
         public const double BadgePadX = 18;
 
         /// <summary>Badge height.</summary>
-        public const double BadgeHeight = 34;
+        public const double BadgeHeight = 22;
 
         /// <summary>Nav underline thickness.</summary>
         public const double NavUnderline = 2;
@@ -764,8 +758,8 @@ public static class Tokens
         /// <summary>How long a destructive button stays armed waiting for its second click.</summary>
         public static TimeSpan ConfirmWindow { get; } = TimeSpan.FromSeconds(4);
 
-        /// <summary>Hover lift of a card, in pixels. <c>translateY(-1px)</c>.</summary>
-        public const double CardLift = 1;
+        /// <summary>Cards stay still under the pointer.</summary>
+        public const double CardLift = 0;
 
         /// <summary>Hover lift of the hero button. <c>translateY(-2px)</c>.</summary>
         public const double HeroLift = 2;

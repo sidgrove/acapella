@@ -11,7 +11,7 @@ using Murmur.App.Design;
 
 namespace Murmur.App.Controls;
 
-/// <summary>Sidgrove ambient blooms and a fine grid behind opaque content cards.</summary>
+/// <summary>A quiet ambient wash and faint grid behind opaque content cards.</summary>
 public sealed class WashPanel : Decorator
 {
     /// <inheritdoc />
@@ -28,7 +28,6 @@ public sealed class WashPanel : Decorator
             context.DrawLine(grid, new Point(x, 0), new Point(x, bounds.Height));
         for (var y = Tokens.Layout.GridPitch; y < bounds.Height; y += Tokens.Layout.GridPitch)
             context.DrawLine(grid, new Point(0, y), new Point(bounds.Width, y));
-
     }
 }
 
@@ -76,7 +75,7 @@ public static class Card
     public static Border Subtle(Control content, double? padding = null) => new()
     {
         Background = Tokens.Brushes.Surface,
-        BorderBrush = Tokens.Brushes.PanelBorder,
+        BorderBrush = Tokens.Brushes.None,
         BorderThickness = new Thickness(Tokens.Border.Hairline),
         CornerRadius = new CornerRadius(Tokens.Radius.Inner),
         Padding = new Thickness(padding ?? Tokens.Space.Roomy),
@@ -110,7 +109,7 @@ public static class Card
 /// <summary>Text at the type scale, one font per role.</summary>
 public static class Text
 {
-    /// <summary>A page title. <c>.sg-hero-title</c>: Very Vogue Text 28px 400, -0.02em.</summary>
+    /// <summary>A page title. <c>.sg-hero-title</c>: Very Vogue Text 32px 400, positive tracking.</summary>
     public static TextBlock Title(string text) =>
         Make(text, Tokens.Fonts.Serif, Tokens.Fonts.Title, FontWeight.Normal, Tokens.Brushes.Ink, Tokens.Fonts.TitleTracking);
 
@@ -138,9 +137,9 @@ public static class Text
     /// <summary>Metadata and captions.</summary>
     public static TextBlock Caption(string text) => Make(text, Tokens.Fonts.Sans, Tokens.Fonts.Caption, FontWeight.Normal, Tokens.Brushes.Faint);
 
-    /// <summary>An eyebrow label. <c>.sg-hero-eyebrow</c>: 10.5px 700, 0.14em, uppercase, muted.</summary>
+    /// <summary>An eyebrow label. <c>.sg-hero-eyebrow</c>: 11px, sentence case, muted.</summary>
     public static TextBlock Eyebrow(string text) =>
-        Make(text.ToUpperInvariant(), Tokens.Fonts.Sans, Tokens.Fonts.Eyebrow, FontWeight.Bold, Tokens.Brushes.Muted, Tokens.Fonts.EyebrowTracking);
+        Make(text, Tokens.Fonts.Sans, Tokens.Fonts.Eyebrow, FontWeight.Medium, Tokens.Brushes.Muted, Tokens.Fonts.EyebrowTracking);
 
     /// <summary>A number that ticks, in DM Sans with tabular figures. <c>.num</c>.</summary>
     public static TextBlock Number(string text, double size, IBrush brush)
@@ -198,7 +197,7 @@ public static class Pill
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock
         {
-            Text = text.ToUpperInvariant(),
+            Text = text,
             FontFamily = Tokens.Fonts.Sans,
             FontSize = Tokens.Fonts.Badge,
             FontWeight = FontWeight.SemiBold,
@@ -889,14 +888,14 @@ public static class Headline
     };
 }
 
-/// <summary>A micro label in the mono face: 11px, uppercase, 0.16em. <c>--label</c>.</summary>
+/// <summary>A quiet metadata label in DM Sans, with no tracking.</summary>
 public static class MonoLabel
 {
     /// <summary>Creates the label.</summary>
     public static TextBlock Make(string text, IBrush? brush = null) => new()
     {
-        Text = text.ToUpperInvariant(),
-        FontFamily = Tokens.Fonts.Mono,
+        Text = text,
+        FontFamily = Tokens.Fonts.Sans,
         FontSize = Tokens.Fonts.MonoLabel,
         FontWeight = FontWeight.Normal,
         LetterSpacing = Tokens.Fonts.MonoLabelTracking,
@@ -906,7 +905,7 @@ public static class MonoLabel
 }
 
 /// <summary>
-/// The site's badge: a white pill with a coloured dot and a mono uppercase label.
+/// A fill-only status chip with a dot and sentence-case label.
 /// </summary>
 public sealed class Badge : Border
 {
@@ -919,11 +918,11 @@ public sealed class Badge : Border
         _dot = new StatusDot { Fill = dot ?? Tokens.Brushes.Brand, VerticalAlignment = VerticalAlignment.Center };
         _label = MonoLabel.Make(text, Tokens.Brushes.Muted);
 
-        Background = Tokens.Brushes.Card;
-        BorderBrush = Tokens.Brushes.Line;
+        Background = Tokens.Brushes.Surface;
+        BorderBrush = Tokens.Brushes.None;
         BorderThickness = new Thickness(Tokens.Border.Hairline);
         CornerRadius = new CornerRadius(Tokens.Radius.Pill);
-        BoxShadow = Tokens.Shadow.Soft;
+        BoxShadow = Tokens.Shadow.None;
         Height = Tokens.Layout.BadgeHeight;
         Padding = new Thickness(Tokens.Space.Base, 0, Tokens.Layout.BadgePadX, 0);
         HorizontalAlignment = HorizontalAlignment.Left;
@@ -939,17 +938,17 @@ public sealed class Badge : Border
     /// <summary>Updates the label and dot.</summary>
     public void Set(string text, IBrush dot, bool live)
     {
-        _label.Text = text.ToUpperInvariant();
+        _label.Text = text;
         _dot.Fill = dot;
         _dot.IsLive = live;
     }
 }
 
-/// <summary>A nav link in the site's voice: muted text, brand-strong when active, an underline that grows in.</summary>
+/// <summary>Quiet navigation with a neutral selected fill and stronger label.</summary>
 public sealed class NavLink : Button
 {
     private readonly TextBlock _label;
-    private readonly Border _underline;
+    private readonly Border _surface;
     private bool _active;
 
     /// <summary>Creates the link.</summary>
@@ -963,28 +962,16 @@ public sealed class NavLink : Button
             FontWeight = FontWeight.Medium,
             Foreground = Tokens.Brushes.Muted,
         };
-        _underline = new Border
+        _surface = new Border
         {
-            Height = Tokens.Layout.NavUnderline,
-            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
-            Background = Tokens.Brushes.NavUnderline,
-            Opacity = 0,
-            Transitions = [new DoubleTransition { Property = OpacityProperty, Duration = Tokens.Motion.Lift }],
+            CornerRadius = new CornerRadius(Tokens.Radius.Control),
+            Padding = new Thickness(Tokens.Layout.NavPillPadX, Tokens.Space.Snug),
+            Child = _label,
         };
-
         Background = Tokens.Brushes.None;
         BorderThickness = new Thickness(0);
-        Padding = new Thickness(0, Tokens.Space.Snug);
         Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
-        Template = new FuncControlTemplate<NavLink>((_, _) => new Border
-        {
-            Padding = Padding,
-            Child = new StackPanel
-            {
-                Spacing = Tokens.Space.Tight,
-                Children = { _label, _underline },
-            },
-        });
+        Template = new FuncControlTemplate<NavLink>((_, _) => _surface);
     }
 
     /// <summary>Whether this link is the current section.</summary>
@@ -1004,8 +991,9 @@ public sealed class NavLink : Button
     private void Paint()
     {
         var lit = _active || IsPointerOver;
-        _label.Foreground = lit ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
-        _underline.Opacity = lit ? 1 : 0;
+        _label.Foreground = lit ? Tokens.Brushes.Ink : Tokens.Brushes.Muted;
+        _label.FontWeight = _active ? FontWeight.SemiBold : FontWeight.Medium;
+        _surface.Background = lit ? Tokens.Brushes.Surface : Tokens.Brushes.None;
     }
 }
 

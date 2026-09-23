@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using Murmur.App.Controls;
@@ -50,6 +51,19 @@ public sealed class ResponsiveLayoutTests
             window.Width = width;
             window.Height = height;
             window.UpdateLayout();
+            foreach (var navigation in window.GetVisualDescendants().OfType<NavLink>())
+            {
+                var origin = navigation.TranslatePoint(default, window)!.Value;
+                origin.X.ShouldBeGreaterThanOrEqualTo(0);
+                (origin.X + navigation.Bounds.Width).ShouldBeLessThanOrEqualTo(window.Bounds.Width);
+                (origin.Y + navigation.Bounds.Height).ShouldBeLessThanOrEqualTo(window.Bounds.Height);
+            }
+            if (Environment.GetEnvironmentVariable("ACAPELLA_VISUAL_DIR") is { } captureDir)
+            {
+                Directory.CreateDirectory(captureDir);
+                using var frame = window.CaptureRenderedFrame();
+                frame?.Save(Path.Combine(captureDir, $"history-{width}x{height}.png"));
+            }
             var scroll = view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel);
             foreach (var button in view.GetVisualDescendants().OfType<SgButton>())
             {
