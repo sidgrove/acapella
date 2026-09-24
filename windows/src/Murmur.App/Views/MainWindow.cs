@@ -87,7 +87,7 @@ public sealed class MainWindow : ShellWindow
 
         if (_composition is not null) _overlay = new OverlayWindow(PlatformFactory.CreateWindowTweaks());
 
-        Content = Frame(AppPaths.ProductName, BuildBody());
+        Content = Frame(AppPaths.ProductName, BuildBody(), BuildModeSelector());
         BindShortcuts();
         ShowSection(transcriptions: true);
         RefreshHint();
@@ -183,25 +183,44 @@ public sealed class MainWindow : ShellWindow
         var settings = new NavLink("Settings");
         _settingsLink = settings;
         settings.Click += (_, _) => ShowSettings();
-        var navigation = Panels.Row(Tokens.Space.Tight, _transcriptionsLink, _dictionaryLink, settings);
-        navigation.Margin = new Thickness(0, 0, Tokens.Space.Roomy, 0);
-        var mode = new SgButton(_composition?.Settings.Data.AiCleanup == true ? "Polished · switch to Instant" : "Instant · switch to Polished", SgButton.Kind.Quiet, compact: true);
-        ToolTip.SetTip(mode, "Instant uses local transcription. Polished waits for optional Gemini clean-up. Change modes between recordings.");
-        mode.IsEnabled = _composition is not null;
-        mode.Click += (_, _) =>
-        {
-            if (_composition is null || _composition.Engine?.State != DictationState.Idle) return;
-            _composition.Settings.Update(_composition.Settings.Data with { AiCleanup = !_composition.Settings.Data.AiCleanup });
-        };
-        if (_composition is not null)
-            _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(() =>
-                mode.Content = _composition.Settings.Data.AiCleanup ? "Polished · switch to Instant" : "Instant · switch to Polished");
-        mode.VerticalAlignment = VerticalAlignment.Center;
         return new WrapPanel
         {
             Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy, Tokens.Layout.ScrollGutter * 2, 0),
-            Children = { navigation, mode },
+            Children = { Panels.Row(Tokens.Space.Tight, _transcriptionsLink, _dictionaryLink, settings) },
         };
+    }
+
+    private StackPanel BuildModeSelector()
+    {
+        var instant = new NavLink("Instant");
+        var polished = new NavLink("Polished");
+        ToolTip.SetTip(instant, "Local transcription. Text is typed without AI clean-up.");
+        ToolTip.SetTip(polished, "Gemini tidies the transcript before it is typed.");
+
+        void Refresh()
+        {
+            var usePolished = _composition?.Settings.Data.AiCleanup == true;
+            instant.IsActive = !usePolished;
+            polished.IsActive = usePolished;
+        }
+
+        void Choose(bool usePolished)
+        {
+            if (_composition is null || _composition.Engine?.State != DictationState.Idle) return;
+            if (_composition.Settings.Data.AiCleanup != usePolished)
+                _composition.Settings.Update(_composition.Settings.Data with { AiCleanup = usePolished });
+        }
+
+        instant.IsEnabled = polished.IsEnabled = _composition is not null;
+        instant.Click += (_, _) => Choose(false);
+        polished.Click += (_, _) => Choose(true);
+        if (_composition is not null)
+            _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
+        Refresh();
+
+        var label = Text.Muted("Dictation mode");
+        label.VerticalAlignment = VerticalAlignment.Center;
+        return Panels.Row(Tokens.Space.Tight, label, instant, polished);
     }
 
     private Border BuildBody()

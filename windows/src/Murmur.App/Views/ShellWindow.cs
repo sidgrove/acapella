@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Platform;
+using Avalonia.VisualTree;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
@@ -125,6 +126,7 @@ public abstract class ShellWindow : Window
         strip.PointerPressed += (_, e) =>
         {
             if (!e.GetCurrentPoint(strip).Properties.IsLeftButtonPressed) return;
+            if (e.Source is Control source && (source is Button || source.GetVisualAncestors().OfType<Button>().Any())) return;
             if (e.ClickCount == 2 && !IsSheet) ToggleMaximise();
             else BeginMoveDrag(e);
         };
