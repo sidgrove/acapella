@@ -222,6 +222,49 @@ public interface ITranscriber : IAsyncDisposable
 }
 
 /// <summary>
+/// A speech-to-text service in the cloud that listens while the key is held, more accurate
+/// than the local model, whose words are typed while the local model keeps the preview
+/// and the fallback.
+/// </summary>
+/// <remarks>
+/// On the Artificial Analysis benchmark (September 2026) Parakeet TDT 0.6B v2 makes about
+/// 6.4% word errors and the best cloud models 2-3.6%, and on Dave's dictations nearly every
+/// wrong word began as a local mishearing ("Sarif", "Get pole", "run and peck a ball") that
+/// no text-only clean-up could put right. Streaming during the recording is what keeps the
+/// wait after the key-up at a few hundred milliseconds instead of a second and more.
+/// </remarks>
+public interface IStreamingTranscriber
+{
+    /// <summary>A short name for the history and the log, e.g. "gemini-3.5-transcribe-live".</summary>
+    string Name { get; }
+
+    /// <summary>
+    /// Starts listening for one dictation. Returns at once; the connection opens in the
+    /// background and audio appended before it is ready is queued. Null when unavailable,
+    /// for example with no key configured.
+    /// </summary>
+    /// <param name="keyTerms">The speaker's names and jargon, to bias recognition towards.</param>
+    IStreamingTranscription? Start(IReadOnlyList<string> keyTerms);
+}
+
+/// <summary>One dictation being transcribed in the cloud as it is spoken.</summary>
+public interface IStreamingTranscription : IAsyncDisposable
+{
+    /// <summary>Queues audio for sending. Never blocks and never throws.</summary>
+    /// <param name="samples">16 kHz mono float, in [-1, 1]. Copied before this returns.</param>
+    void Append(ReadOnlySpan<float> samples);
+
+    /// <summary>
+    /// Ends the dictation and waits for the final transcript. Null when the service failed
+    /// or did not answer before <paramref name="cancellationToken"/> fired.
+    /// </summary>
+    Task<string?> FinishAsync(CancellationToken cancellationToken);
+
+    /// <summary>Why the transcription failed, for the log. Null while it is healthy.</summary>
+    string? LastError { get; }
+}
+
+/// <summary>
 /// Registers the app to start when the user signs in.
 /// </summary>
 /// <remarks>
@@ -340,6 +383,19 @@ public interface ITranscriptCleaner
     /// with a full stop unless the words finish a sentence.
     /// </summary>
     Task<string?> CleanPieceAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) => CleanAsync(text, precedingCleaned, cancellationToken);
+
+    /// <summary>
+    /// Cleans one dictation heard by two recognisers, taking each word from whichever
+    /// reading makes more sense. <paramref name="cloud"/> is also what the result is
+    /// checked against.
+    /// </summary>
+    /// <remarks>
+    /// Neither reading wins outright. On Dave's dictations on 2026-09-24 the cloud model
+    /// was right on "bank feeds", "Xero" and "the 27th of May" where the local one was
+    /// not, and wrong on opening words ("But you also need" for "I do also need") and on
+    /// ordinary phrases it forced into the word list ("See if" as "serif").
+    /// </remarks>
+    Task<string?> CleanTwoReadingsAsync(string cloud, string local, CancellationToken cancellationToken) => CleanAsync(cloud, cancellationToken);
 
     /// <summary>Why the most recent <see cref="CleanAsync(string, CancellationToken)"/> returned null, for the log. Null when it succeeded.</summary>
     string? LastError => null;

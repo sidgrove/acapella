@@ -105,6 +105,19 @@ public sealed class GeminiCleanerTests
     }
 
     [Fact]
+    public async Task Two_readings_are_both_sent_and_labelled()
+    {
+        var server = new FakeGemini(reply: "x");
+        using var cleaner = Build(server);
+
+        await cleaner.CleanTwoReadingsAsync("see if the serif fits", "see if the sheriff fits", CancellationToken.None);
+
+        server.LastBody.ShouldContain("Reading A");
+        server.LastBody.ShouldContain("see if the serif fits");
+        server.LastBody.ShouldContain("see if the sheriff fits");
+    }
+
+    [Fact]
     public async Task No_key_is_named_as_the_reason()
     {
         if (Environment.GetEnvironmentVariable(GeminiCleaner.ApiKeyEnvironmentVariable) is { Length: > 0 }) return;

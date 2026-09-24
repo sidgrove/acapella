@@ -146,6 +146,7 @@ public sealed class Composition : IAsyncDisposable
                 HotkeyModifiers = settings.Data.PushToTalkModifiers,
                 // Key and model are read per call, so pasting a key into Settings works at once.
                 Cleaner = NewCleaner(settings, dictionary),
+                CloudTranscriber = NewCloudTranscriber(settings),
                 Decisions = new JevClient(() => settings.Data.JevApiKey, settings.Data.JevBaseUrl, settings.Data.JevModel),
             };
 
@@ -172,6 +173,7 @@ public sealed class Composition : IAsyncDisposable
                 if (settings.Data.IsEnabled) capture!.WarmUp(); else capture!.Release();
                 if (engine.HotkeyVirtualKey != settings.Data.PushToTalkKey) engine.HotkeyVirtualKey = settings.Data.PushToTalkKey;
                 if (engine.HotkeyModifiers != settings.Data.PushToTalkModifiers) engine.HotkeyModifiers = settings.Data.PushToTalkModifiers;
+                if (engine.CloudTranscriber?.Name != NewCloudTranscriber(settings)?.Name) engine.CloudTranscriber = NewCloudTranscriber(settings);
                 if (engine.Cleaner?.Name != (string.IsNullOrWhiteSpace(settings.Data.GeminiModel) ? GeminiCleaner.DefaultModel : settings.Data.GeminiModel.Trim()))
                 {
                     (engine.Cleaner as IDisposable)?.Dispose();
@@ -190,9 +192,13 @@ public sealed class Composition : IAsyncDisposable
             // spent up to 900 ms delivering silence, which is where first words went.
             if (settings.Data.IsEnabled) capture!.WarmUp();
 
+            var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
             engine.Completed += (_, result) =>
             {
                 if (!settings.Data.KeepHistory) return;
+
+                // Off the typing path: the text is already in the field by now.
+                if (settings.Data.KeepRecordings && !result.Audio.IsEmpty) _ = Task.Run(() => archive.Save(result.At, result.Audio));
 
                 transcripts.Add(new TranscriptRecord
                 {
@@ -204,6 +210,8 @@ public sealed class Composition : IAsyncDisposable
                     CleanedBy = result.CleanedBy,
                     RawText = result.RawText,
                     CleanupFailed = result.CleanupFailed,
+                    TranscribedBy = result.TranscribedBy,
+                    LocalRawText = result.LocalRawText,
                 });
             };
         }
@@ -216,6 +224,13 @@ public sealed class Composition : IAsyncDisposable
     /// spellings go to the model as vocabulary: the speech model on Windows cannot be
     /// biased, so this is the one tier that can hear "get pool" as "git pull".
     /// </summary>
+    /// <summary>The cloud speech-to-text over the current settings, or null when it is off.</summary>
+    private static IStreamingTranscriber? NewCloudTranscriber(AppSettings settings) =>
+        !settings.Data.CloudTranscription ? null
+        : string.Equals(settings.Data.CloudTranscriptionProvider, "gemini", StringComparison.OrdinalIgnoreCase)
+            ? new GeminiLiveTranscriber(() => settings.Data.GeminiApiKey, settings.Data.CloudTranscriptionModel, settings.Data.BritishSpelling ? "en-GB" : "en-US")
+            : new ElevenLabsTranscriber(() => settings.Data.ElevenLabsApiKey, settings.Data.CloudTranscriptionModel);
+
     private static GeminiCleaner NewCleaner(AppSettings settings, DictionaryFile dictionary) =>
         new(() => settings.Data.GeminiApiKey, settings.Data.GeminiModel,
             customInstructions: () => settings.Data.CustomInstructions,

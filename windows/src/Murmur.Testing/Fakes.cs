@@ -339,3 +339,66 @@ public sealed class FakeClock : IClock
     /// <summary>Moves time forward.</summary>
     public void Advance(TimeSpan by) => Now += by;
 }
+
+/// <summary>A cloud speech-to-text that answers with fixed words, or not at all.</summary>
+/// <param name="reply">The final transcript; null makes every dictation fail.</param>
+/// <param name="delay">How long the final transcript takes after the dictation ends.</param>
+public sealed class FakeStreamingTranscriber(string? reply, TimeSpan delay = default) : IStreamingTranscriber
+{
+    /// <summary>Every dictation started, in order.</summary>
+    public List<Transcription> Started { get; } = [];
+
+    /// <inheritdoc />
+    public string Name => "fake-cloud";
+
+    /// <inheritdoc />
+    public IStreamingTranscription? Start(IReadOnlyList<string> keyTerms)
+    {
+        var transcription = new Transcription(reply, delay, keyTerms);
+        lock (Started) Started.Add(transcription);
+        return transcription;
+    }
+
+    /// <summary>One dictation: what it was sent and whether it was finished and disposed.</summary>
+    public sealed class Transcription(string? reply, TimeSpan delay, IReadOnlyList<string> keyTerms) : IStreamingTranscription
+    {
+        private readonly List<float> _audio = [];
+
+        /// <summary>The word list it was started with.</summary>
+        public IReadOnlyList<string> KeyTerms { get; } = keyTerms;
+
+        /// <summary>A copy of the audio sent so far.</summary>
+        public float[] Audio { get { lock (_audio) return [.. _audio]; } }
+
+        /// <summary>Whether the dictation was ended.</summary>
+        public bool Finished { get; private set; }
+
+        /// <summary>Whether it was disposed.</summary>
+        public bool Disposed { get; private set; }
+
+        /// <inheritdoc />
+        public string? LastError => reply is null ? "fake failure" : null;
+
+        /// <inheritdoc />
+        public void Append(ReadOnlySpan<float> samples)
+        {
+            lock (_audio) _audio.AddRange(samples);
+        }
+
+        /// <inheritdoc />
+        public async Task<string?> FinishAsync(CancellationToken cancellationToken)
+        {
+            Finished = true;
+            try { if (delay > TimeSpan.Zero) await Task.Delay(delay, cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return null; }
+            return reply;
+        }
+
+        /// <inheritdoc />
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+    }
+}

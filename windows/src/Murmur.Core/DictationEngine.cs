@@ -54,6 +54,9 @@ public enum TrailingFullStop
 /// <param name="RawText">What the speech model heard, before any rules or clean-up.</param>
 /// <param name="CleanupFailed">The AI tier was on but its answer was unusable, so <paramref name="Text"/> is the local result.</param>
 /// <param name="Cleanup">Which path the text took through the AI tier.</param>
+/// <param name="Audio">The recording the text came from, for the archive kept for accuracy testing.</param>
+/// <param name="TranscribedBy">The cloud model whose words these are, or null for the local model's.</param>
+/// <param name="LocalRawText">The local model's transcript, kept beside a cloud one for comparison.</param>
 public sealed record DictationResult(
     DateTimeOffset At,
     TimeSpan AudioDuration,
@@ -63,7 +66,10 @@ public sealed record DictationResult(
     string? CleanedBy = null,
     string? RawText = null,
     bool CleanupFailed = false,
-    CleanupPath Cleanup = CleanupPath.Off);
+    CleanupPath Cleanup = CleanupPath.Off,
+    ReadOnlyMemory<float> Audio = default,
+    string? TranscribedBy = null,
+    string? LocalRawText = null);
 
 /// <summary>How a dictation went through the AI tier. Every path is named so the log can say which one ran.</summary>
 public enum CleanupPath
@@ -176,7 +182,17 @@ public sealed class DictationEngine : IAsyncDisposable
         /// </summary>
         public Task<string?>? CaretContext;
 
-        public void Dispose() => Stop.Dispose();
+        /// <summary>The cloud transcription fed while the key is held, or null.</summary>
+        public IStreamingTranscription? Cloud;
+
+        /// <summary>How much of <see cref="Buffer"/> has been handed to <see cref="Cloud"/>.</summary>
+        public int CloudSent;
+
+        public void Dispose()
+        {
+            Stop.Dispose();
+            if (Cloud is { } cloud) _ = cloud.DisposeAsync().AsTask();
+        }
     }
 
     /// <summary>A stretch of the recording whose transcript will not change.</summary>
@@ -362,6 +378,19 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>The generative clean-up, or null when none is configured.</summary>
     public ITranscriptCleaner? Cleaner { get; set; }
+
+    /// <summary>
+    /// The cloud speech-to-text whose words are typed, or null to type the local model's.
+    /// It hears the audio while the key is held; the local model still draws the preview
+    /// and stands in whenever the cloud fails or is late.
+    /// </summary>
+    public IStreamingTranscriber? CloudTranscriber { get; set; }
+
+    /// <summary>
+    /// How long after the key-up the cloud's final transcript is waited for before the
+    /// local one is used. It normally lands in 0.3-0.7 s; the clean-up has its own budget.
+    /// </summary>
+    public TimeSpan CloudBudget { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// The decision model, or null. Runs in the shadow for now: on every dictation it is
@@ -592,6 +621,9 @@ public sealed class DictationEngine : IAsyncDisposable
                 session.CaretContext = Task.Run(() => injector.ReadTextBeforeCaretAsync(CaretCase.ContextLength, stop), CancellationToken.None);
             }
 
+            // Opened now so the socket and setup, about half a second, overlap the first words.
+            session.Cloud = StartCloud();
+
             lock (_bufferLock) _current = session;
             SetPreview(string.Empty);
             Changed?.Invoke(this, EventArgs.Empty);
@@ -615,6 +647,60 @@ public sealed class DictationEngine : IAsyncDisposable
     }
 
     private bool IsCurrent(Session session) => ReferenceEquals(_current, session);
+
+    /// <summary>Whether two transcripts have the same words, ignoring case and punctuation.</summary>
+    private static bool SameWords(string a, string b)
+    {
+        static string Words(string s) => string.Join(' ', new string([.. s.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) || c == '\'' ? c : ' ')])
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return Words(a) == Words(b);
+    }
+
+    private IStreamingTranscription? StartCloud()
+    {
+        if (CloudTranscriber is not { } cloud) return null;
+        try
+        {
+            return cloud.Start(DictionaryCorrector.BiasPhrases(_dictionary()));
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"cloud transcription could not start: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Hands the cloud everything recorded since the last call, never the pre-roll that other
+    /// apps' playback was on. Called with <see cref="_bufferLock"/> held.
+    /// </summary>
+    private static void FeedCloud(Session session)
+    {
+        if (session.Cloud is not { } cloud) return;
+        var start = Math.Max(session.CloudSent, session.SkipSamples);
+        if (session.Buffer.Count <= start) return;
+        cloud.Append(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(session.Buffer)[start..]);
+        session.CloudSent = session.Buffer.Count;
+    }
+
+    /// <summary>Ends the cloud's dictation and waits, within <see cref="CloudBudget"/>, for its words.</summary>
+    private static async Task<string?> FinishCloudAsync(IStreamingTranscription cloud, string name, TimeSpan within)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        using var budget = new CancellationTokenSource(within);
+        try
+        {
+            var text = await cloud.FinishAsync(budget.Token).ConfigureAwait(false);
+            if (text is null) Log.Warn($"cloud transcription by {name} failed after {clock.ElapsedMilliseconds} ms ({cloud.LastError ?? "no reason given"}); typing the local model's words");
+            else Log.Info($"cloud transcription by {name}: final {clock.ElapsedMilliseconds} ms after the key-up, {text.Length} chars");
+            return text;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"cloud transcription by {name} failed: {e.Message}");
+            return null;
+        }
+    }
 
     private async Task CaptureLoopAsync(Session session, Task? previousLoop)
     {
@@ -678,6 +764,11 @@ public sealed class DictationEngine : IAsyncDisposable
                                 : "other audio ducked");
                         }
                     }
+                }
+                // After the duck, which decides whether the pre-roll is the user's or another app's.
+                lock (_bufferLock)
+                {
+                    if (IsCurrent(session)) FeedCloud(session);
                 }
                 Changed?.Invoke(this, EventArgs.Empty);
             }
@@ -835,7 +926,9 @@ public sealed class DictationEngine : IAsyncDisposable
                         // With "review the whole dictation" on, nothing is cleaned early:
                         // the one call after the key-up sees every sentence with its
                         // neighbours, at the cost of waiting for it.
-                        var cleaner = AiCleanup && !ReviewWholeDictation ? Cleaner : null;
+                        // With cloud transcription the local words are only the fallback, so
+                        // cleaning them early would be wasted; the cloud's are cleaned whole.
+                        var cleaner = AiCleanup && !ReviewWholeDictation && session.Cloud is null ? Cleaner : null;
                         // A silent stretch is a completed, empty piece, not a missing
                         // one: null here would mean "the AI tier could not" and quietly
                         // send the whole dictation round again after the key-up.
@@ -1057,6 +1150,15 @@ public sealed class DictationEngine : IAsyncDisposable
     {
         var samples = session.Buffer;
 
+        // The end of the dictation goes to the cloud before anything else, so its final
+        // transcript is on its way while the local model decodes.
+        Task<string?>? cloudFinal = null;
+        if (session.Cloud is { } cloud)
+        {
+            lock (_bufferLock) FeedCloud(session);
+            cloudFinal = FinishCloudAsync(cloud, CloudTranscriber?.Name ?? "cloud", CloudBudget);
+        }
+
         // The pre-roll was captured while other playback was still at full volume, so its
         // words are the video's, not the user's. It is the first thing the warm capture
         // delivered, so it is the start of the buffer. The preview knew to skip it from
@@ -1156,6 +1258,17 @@ public sealed class DictationEngine : IAsyncDisposable
                + $"in {(_clock.Now - releasedAt).TotalMilliseconds:0} ms: {raw.Length} chars"
                + (committedSamples > 0 ? $" ({committedSamples / (double)AudioChunk.SampleRate:0.0}s reused from the preview)" : string.Empty));
 
+        // The cloud's words win when they arrive in time. An empty answer where the local
+        // model heard speech is treated as a failure, not as silence.
+        string? transcribedBy = null;
+        string? localRaw = null;
+        if (cloudFinal is not null && await cloudFinal.ConfigureAwait(false) is { } cloudText && !string.IsNullOrWhiteSpace(cloudText))
+        {
+            localRaw = raw;
+            raw = string.Join(' ', cloudText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            transcribedBy = CloudTranscriber?.Name;
+        }
+
         if (string.IsNullOrWhiteSpace(raw))
         {
             Dropped?.Invoke(this, "Nothing heard");
@@ -1204,7 +1317,7 @@ public sealed class DictationEngine : IAsyncDisposable
         // Pieces frozen during a long recording were cleaned as they were spoken. If every
         // one of them came back, only the tail is cleaned now, with the rest as context.
         // Anything short of that falls through to the whole-dictation pass below.
-        if (AiCleanup && Cleaner is { } tailCleaner && !send && committed.Count > 0 && committed.All(c => c.Clean is not null))
+        if (AiCleanup && Cleaner is { } tailCleaner && !send && transcribedBy is null && committed.Count > 0 && committed.All(c => c.Clean is not null))
         {
             SegmentClean?[]? earlier = null;
             try { earlier = await Task.WhenAll(committed.Select(c => c.Clean!)).WaitAsync(budget.Token).ConfigureAwait(false); }
@@ -1261,7 +1374,14 @@ public sealed class DictationEngine : IAsyncDisposable
             }
             else
             {
-                var cleaned = await CleanWithinBudgetAsync(() => cleaner.CleanAsync(forCleaner, budget.Token), budget.Token).ConfigureAwait(false);
+                // With two readings that differ, the cleaner chooses between them; identical
+                // ones, or a local model that heard nothing, leave only the one.
+                var alternative = localRaw is null ? null : ForCleaner(new DictionaryCorrector(entries).Apply(localRaw).Text);
+                var twoReadings = alternative is { Length: > 0 } && !SameWords(alternative, forCleaner);
+                var cleaned = await CleanWithinBudgetAsync(
+                    () => twoReadings ? cleaner.CleanTwoReadingsAsync(forCleaner, alternative!, budget.Token) : cleaner.CleanAsync(forCleaner, budget.Token),
+                    budget.Token).ConfigureAwait(false);
+                if (twoReadings) note = "chose between the cloud and local readings";
                 if (cleaned is not null && !CleanupGuard.IsPlausible(forCleaner, cleaned))
                 {
                     // The model summarised or padded. Wispr-grade means never doing that to
@@ -1309,7 +1429,10 @@ public sealed class DictationEngine : IAsyncDisposable
             CleanedBy: cleanedBy,
             RawText: raw,
             CleanupFailed: cleanupFailed,
-            Cleanup: path);
+            Cleanup: path,
+            Audio: audio,
+            TranscribedBy: transcribedBy,
+            LocalRawText: localRaw);
 
         if (cleanedBy is not null || !AiCleanup) LastFault = null;
 

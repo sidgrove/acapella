@@ -19,6 +19,7 @@ public sealed class PieceTextTests
     [InlineData("Cell J.", "3, I think", "Cell J. 3, I think")]
     [InlineData("I want this to be more like the groups mapping", "And also, chart of accounts", "I want this to be more like the groups mapping. And also, chart of accounts")]
     [InlineData("software companies in the accounting industry", "Keep it human-led", "software companies in the accounting industry. Keep it human-led")]
+    [InlineData("all of the attachments that exist?", "in the system and database", "all of the attachments that exist? In the system and database")]
     [InlineData("software companies in the accounting industry", "I think so", "software companies in the accounting industry I think so")]
     [InlineData("software companies in the accounting industry", "I'm sure", "software companies in the accounting industry I'm sure")]
     [InlineData("software companies in the accounting industry", "HMRC said no", "software companies in the accounting industry HMRC said no")]

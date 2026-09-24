@@ -70,6 +70,14 @@ public static class PieceText
         {
             head += ".";
         }
+        // A question or exclamation the earlier piece's cleaner kept is real punctuation,
+        // so whatever follows opens a sentence even though the continuation's cleaner,
+        // told the sentence might carry on, wrote it in lower case: "that exist? in the
+        // system" on 2026-09-24.
+        else if (head[^1] is '?' or '!' && char.IsLower(tail[0]))
+        {
+            tail = Capitalise(tail);
+        }
 
         return head + " " + tail;
     }

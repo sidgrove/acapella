@@ -34,6 +34,12 @@ public sealed record TranscriptRecord
 
     /// <summary>The AI tier was on but its answer was unusable, so the local text was typed.</summary>
     public bool CleanupFailed { get; init; }
+
+    /// <summary>The cloud model whose words <see cref="RawText"/> are, or null for the local model's.</summary>
+    public string? TranscribedBy { get; init; }
+
+    /// <summary>What the local model heard, kept beside a cloud transcript for comparison.</summary>
+    public string? LocalRawText { get; init; }
 }
 
 /// <summary>

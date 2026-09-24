@@ -44,7 +44,27 @@ public static partial class SpokenFormatting
     }
 
     /// <summary>Removes standalone hesitation words and the punctuation that clung to them.</summary>
-    public static string RemoveFillers(string text) => Filler().Replace(text, " ");
+    /// <remarks>
+    /// A filler that opened a sentence took the sentence's capital with it: "the journals.
+    /// Um, you can" became "the journals. you can", and a lower-case word after a full stop
+    /// reads to the clean-up as a sentence carrying on, so it deleted the stop. Seen on
+    /// 2026-09-23 as "preview all the journals you can probably". The word that now opens
+    /// the sentence gets the capital back.
+    /// </remarks>
+    public static string RemoveFillers(string text)
+    {
+        var removed = Filler().Replace(text, match =>
+        {
+            var before = text.AsSpan(0, match.Index).TrimEnd();
+            var endsSentence = before.Length > 0 && (before[^1] is '?' or '!' || (before[^1] == '.' && !before.EndsWith("..")));
+            return endsSentence ? " " + SentenceOpened : " ";
+        });
+        if (!removed.Contains(SentenceOpened, StringComparison.Ordinal)) return removed;
+        return OpenedSentence().Replace(removed, m => m.Groups[1].Value.ToUpperInvariant()).Replace(SentenceOpened, string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>Marks where a removed filler opened a sentence, until the next word is capitalised.</summary>
+    private const string SentenceOpened = "\u0001";
 
     /// <summary>
     /// "scratch that" and friends remove the clause spoken just before them, back to the
@@ -173,6 +193,9 @@ public static partial class SpokenFormatting
     // "mm" after a figure is millimetres ("5 mm wide"); "ER" in capitals is the emergency
     // room, which the speech model writes as an acronym. Neither is a hesitation. The
     // lookbehind keeps a filler from being taken out of the middle of "summer".
+    [GeneratedRegex("\u0001\\s*([a-z])", RegexOptions.CultureInvariant)]
+    private static partial Regex OpenedSentence();
+
     [GeneratedRegex(@"(?<=^|[\s,.])(?<!\d\s?)(?:[Uu][Mm]+|[Uu][Hh]+|[Ee][Rr][Mm]|[Ee]r|e[Rr]|[Hh][Mm]{2,}|[Mm][Mm]+)\b[,.]?\s*", RegexOptions.CultureInvariant)]
     private static partial Regex Filler();
 

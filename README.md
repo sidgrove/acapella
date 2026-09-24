@@ -2,7 +2,8 @@
 
 Press a key, say it, and it's typed. Acapella is a dictation app for Windows from [Sidgrove](https://sidgrove.com): hold or tap a key anywhere, speak, and the words land in whatever has focus.
 
-- **On this machine.** Speech is transcribed locally with NVIDIA's Parakeet model through sherpa-onnx. Nothing leaves your PC unless you turn on AI clean-up.
+- **On this machine first.** Speech is transcribed locally with NVIDIA's Parakeet model through sherpa-onnx. Nothing leaves your PC unless you turn on AI clean-up or cloud transcription.
+- **Optional cloud transcription.** ElevenLabs Scribe (or Gemini 3.5 Transcribe) listens while you hold the key, and the clean-up takes each word from whichever of its reading and Parakeet's makes more sense. On our own dictations that cut wrong words by about a third, with the final text about 0.2 s after you stop. Parakeet stands in whenever the cloud fails.
 - **Live as you speak.** The overlay shows the running transcript while you talk.
 - **Spoken commands that just work.** "New line", "full stop", "comma", "question mark", "scratch that". Ums and ers are dropped. All local, all predictable.
 - **Optional AI clean-up.** Gemini tidies every non-empty dictation—even one word—fixing punctuation, self-corrections, likely mishearings and spoken numbers, with a guard that refuses anything that summarises or rewrites your words. Add your own rules in Settings.
@@ -41,6 +42,7 @@ cd windows
 - Windows 10 or 11, x64
 - A microphone
 - For AI clean-up: a Gemini API key, entered in Settings or set as `GEMINI_API_KEY`
+- For cloud transcription: an ElevenLabs key set as `ELEVENLABS_API_KEY` (or the Gemini key, with the provider set to `gemini`)
 
 ## Building
 

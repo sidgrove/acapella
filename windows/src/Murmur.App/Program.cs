@@ -26,6 +26,10 @@ public static class Program
             return SelfTest.Run();
         }
 
+        // Launched by a packaged app such as Codex, every write to app data would land in
+        // that app's private cache. Hand over to a clean copy before claiming the instance.
+        if (OperatingSystem.IsWindows() && PackageRedirect.RelaunchedOutsidePackage()) return 0;
+
         App.StartMinimized = args.Contains(App.MinimizedArgument, StringComparer.OrdinalIgnoreCase);
 
         // One copy per user session. A second launch hands over to the first — which

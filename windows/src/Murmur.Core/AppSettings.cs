@@ -70,6 +70,12 @@ public sealed record SettingsData
     public bool KeepHistory { get; set; } = true;
 
     /// <summary>
+    /// Keep the audio of the last month's dictations on this PC, so a change of model or
+    /// prompt can be replayed over real speech and scored. Nothing is uploaded.
+    /// </summary>
+    public bool KeepRecordings { get; set; }
+
+    /// <summary>
     /// Legacy. Superseded by <see cref="FullStops"/>; read once at load to migrate an older
     /// file, then always written back as true. Nothing else reads it.
     /// </summary>
@@ -89,6 +95,26 @@ public sealed record SettingsData
 
     /// <summary>Gemini model id, or null for the default.</summary>
     public string? GeminiModel { get; set; }
+
+    /// <summary>
+    /// Stream the audio to a cloud speech-to-text model while the key is held. Its reading
+    /// and the local model's both go to the clean-up, which takes each word from whichever
+    /// makes more sense; the local model alone stands in whenever the cloud fails.
+    /// </summary>
+    public bool CloudTranscription { get; set; }
+
+    /// <summary>
+    /// "elevenlabs" (Scribe v2 Realtime, the default) or "gemini" (3.5 Transcribe Live).
+    /// On 41 of Dave's dictations on 2026-09-24, Scribe paired with Parakeet left 3.5% of
+    /// words wrong after clean-up, Gemini with Parakeet 3.8% and Parakeet alone 4.9%.
+    /// </summary>
+    public string? CloudTranscriptionProvider { get; set; }
+
+    /// <summary>Cloud speech-to-text model id, or null for the provider's default.</summary>
+    public string? CloudTranscriptionModel { get; set; }
+
+    /// <summary>ElevenLabs key, or null to use the <c>ELEVENLABS_API_KEY</c> environment variable.</summary>
+    public string? ElevenLabsApiKey { get; set; }
 
     /// <summary>
     /// Key for Jev, the decision model, or null to use the <c>AI_GATEWAY_API_KEY</c>

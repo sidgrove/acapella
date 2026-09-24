@@ -17,6 +17,8 @@ public sealed class SpokenFormattingTests
     [InlineData("It's 5mm wide.", "It's 5mm wide.")]
     [InlineData("She went to the ER last night.", "She went to the ER last night.")]
     [InlineData("Mm, I think so.", "I think so.")]
+    [InlineData("Preview all the journals. Um, you can take them off.", "Preview all the journals. You can take them off.")]
+    [InlineData("Clear call to action? Um you know, I love it.", "Clear call to action? You know, I love it.")]
     public void Fillers_go_but_real_words_stay(string input, string expected) =>
         SpokenFormatting.Apply(input).ShouldBe(expected);
 

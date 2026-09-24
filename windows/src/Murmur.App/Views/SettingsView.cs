@@ -87,7 +87,7 @@ public sealed class SettingsView : UserControl
             Card.Standard(Panels.Section("Sound effects", "Short cues through your default speakers or headphones.", Panels.Column(Tokens.Space.Roomy,
                 Panels.SwitchRow("Recording sounds", "Soft, quiet notes when listening starts and stops.", _settings.Data.RecordingSounds, v => Save(_settings.Data with { RecordingSounds = v })),
                 Panels.SwitchRow("Send sound", "A subtle note when Acapella sends your text.", _settings.Data.SendSound, v => Save(_settings.Data with { SendSound = v }))))),
-            Card.Standard(Panels.Section("Speech model", "Runs on this machine. Nothing is sent anywhere.", _model)),
+            Card.Standard(Panels.Section("Speech model", "Runs on this machine. With Gemini transcription on, it draws the live preview and types whenever the cloud fails.", _model)),
             Card.Standard(Panels.Section("Writing", "Rules applied on this machine, before anything else.", BuildWritingSection())),
             Card.Standard(Panels.Section("AI clean-up", "Optional. Tidies the transcript with Gemini before typing.", BuildAiSection())),
             Card.Standard(Panels.Section("Behaviour", null, BuildBehaviourSection())));
@@ -252,6 +252,9 @@ public sealed class SettingsView : UserControl
         };
 
         return Panels.Column(Tokens.Space.Base,
+            Panels.SwitchRow("Also transcribe in the cloud as you speak",
+                "Streams your voice to ElevenLabs Scribe while the key is held. Its words and the local model's both go to the clean-up, which takes each word from whichever makes more sense: about a third fewer mistakes on your own dictations. Your dictionary is sent as its word list. Uses the ELEVENLABS_API_KEY on this PC, costs about 35p an hour of speech, and falls back to the local model if it fails or is late.",
+                _settings.Data.CloudTranscription, v => Save(_settings.Data with { CloudTranscription = v })),
             Panels.SwitchRow("Clean up with Gemini before typing",
                 "Tidies every non-empty dictation, even a single word: punctuation, self-corrections, numbers and likely mishearings, without changing your meaning. Your text goes to Google's API — about a twentieth of a penny per dictation on Flash. If it doesn't answer in eight seconds, or rewrites rather than tidies, the local text is typed instead.",
                 _settings.Data.AiCleanup, v => Save(_settings.Data with { AiCleanup = v })),
@@ -277,6 +280,9 @@ public sealed class SettingsView : UserControl
         var column = Panels.Column(Tokens.Space.Roomy,
             Panels.SwitchRow("Type into the focused app", "Off copies to the clipboard and keeps history without typing or pressing Enter.", _settings.Data.InjectText, v => Save(_settings.Data with { InjectText = v })),
             Panels.SwitchRow("Keep a history", null, _settings.Data.KeepHistory, v => Save(_settings.Data with { KeepHistory = v })),
+            Panels.SwitchRow("Keep recordings for accuracy testing",
+                "Saves the last month's audio on this PC, so changes to the speech model or the clean-up can be tested on your own voice. Nothing is uploaded.",
+                _settings.Data.KeepRecordings, v => Save(_settings.Data with { KeepRecordings = v })),
             // The trailing full stop is chosen once, in Writing. A second switch here wrote
             // a legacy flag the engine no longer read, and the two silently disagreed.
             Panels.SwitchRow("Mute other audio while I talk", "Mutes other apps on the current output while recording, then restores their previous mute state. Volume levels stay unchanged.", _settings.Data.DuckOtherAudio, v => Save(_settings.Data with { DuckOtherAudio = v })));

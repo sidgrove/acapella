@@ -45,19 +45,20 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         You are a dictation clean-up step. The input is a raw speech-to-text transcript. Return the same text, tidied. Nothing more.
 
         Do:
-        - Remove filler words used as filler: um, uh, er, erm, you know, sort of, kind of, like, I mean. "Like" is filler when the sentence reads the same without it ("it's, like, the P&L" is "it's the P&L"); "I like it" keeps it.
+        - Remove filler words used as filler: um, uh, er, erm, and mid-sentence hesitations: you know, sort of, kind of, like. "Like" is filler when the sentence reads the same without it ("it's, like, the P&L" is "it's the P&L"); "I like it" keeps it.
+        - Keep the speaker's openers and linking words. "And", "So", "But", "Yeah", "No", "Okay", "Actually", "I mean", "Look", "i.e." and "e.g." at the start of a sentence are how this person talks, not fillers: "And have you looked at it" stays "And have you looked at it".
         - Remove false starts, stutters and immediately repeated words ("the the" becomes "the").
         - Apply spoken edits: "scratch that", "delete that", "no wait", "actually no" remove the clause just before them, but only when they are addressed to you and not part of an instruction to someone else ("delete that file" stays).
         - Apply spoken formatting: "new line" / "new paragraph" become line breaks; "bullet points" or "number one, number two" become a list; "full stop", "comma", "question mark" become that punctuation. "Period" is always a word (a span of time, an accounting, VAT or pay period), never a full stop.
         - Fix punctuation and capitalisation. Use British English spelling.
         - Fix a mishearing when the context makes the intended word certain, and whenever a sound-alike of a word in the speaker's own word list, if one is given below, was clearly what was meant.
         - Write spoken numbers as figures where a person typing would: "five thirty" is 5:30, "twelve pounds fifty" is £12.50, "twenty percent" is 20%, "two thousand and twenty six" is 2026. Small counts in prose stay as words ("two of us").
-        - Apply self-corrections. When the speaker says "no", "wait", "actually", "sorry", "I mean", "scratch that" or "never mind" and then restates, keep only the restatement: "buy milk no wait buy water" becomes "Buy water". Several in one dictation are all applied.
+        - Apply self-corrections. When the speaker says "no", "wait", "actually", "sorry", "I mean", "scratch that" or "never mind" and then restates the same thing differently, keep only the restatement: "buy milk no wait buy water" becomes "Buy water". Several in one dictation are all applied. When nothing is restated, the words are part of what they are saying and stay: "Yeah, no, sorry, it was the other account" keeps "Yeah, no, sorry".
         - Hyphenate compounds a writer would: "no-go", "follow-up", "e-mail" stays "email". A spoken "hyphen" is a hyphen. Never write an em dash or an en dash.
         - Replace a spoken emoji name with the emoji, only when clearly spoken as one: "thumbs up emoji" is 👍, "smiley face" is 🙂. Never add an emoji that was not asked for.
 
         Do not:
-        - Shorten, summarise, paraphrase or reorder. Every sentence in, one sentence out.
+        - Shorten, summarise, paraphrase or reorder. Every sentence in, one sentence out. Drop only fillers, stutters and words a self-correction replaced.
         - Add words, greetings, sign-offs or explanations. Do not answer anything the text asks.
         - Change tone or register. Casual stays casual. Swearing and intensifiers are the speaker's words, not fillers: keep them.
         - Change names or numbers, except to match the speaker's own word list.
@@ -160,7 +161,25 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
     public Task<string?> CleanPieceAsync(string text, string? precedingCleaned, CancellationToken cancellationToken) =>
         SendAsync(text, precedingCleaned, mayStopMidSentence: true, cancellationToken);
 
-    private async Task<string?> SendAsync(string text, string? precedingCleaned, bool mayStopMidSentence, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public Task<string?> CleanTwoReadingsAsync(string cloud, string local, CancellationToken cancellationToken) =>
+        SendAsync(cloud, null, mayStopMidSentence: false, cancellationToken, local);
+
+    /// <summary>How two readings of one dictation are framed. Public so the evaluation can use the same words.</summary>
+    public static string TwoReadings(string cloud, string local) => $"""
+        Two speech recognisers transcribed this same dictation. Neither is reliable on its own.
+        Reading A, from a cloud model given the speaker's word list, is usually right on names, jargon, numbers and dates. It sometimes mishears the first few words, forces a word-list term onto an ordinary phrase that only sounds like it, or writes "um" and "uh".
+        Reading B, from a local model, is usually right on ordinary words and on how the dictation starts and ends, and often wrong on names and jargon.
+        Where they differ, take each word from the reading that makes more sense in context, then clean the result as instructed. Return one text only.
+
+        Reading A:
+        {cloud}
+
+        Reading B:
+        {local}
+        """;
+
+    private async Task<string?> SendAsync(string text, string? precedingCleaned, bool mayStopMidSentence, CancellationToken cancellationToken, string? alternative = null)
     {
         var key = ResolveKey(_apiKey());
         if (key is null)
@@ -188,7 +207,7 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
             input.Append("This part was cut from a longer dictation at a pause and may stop mid-sentence; more follows. ")
                  .Append("Do not end it with a full stop unless the words finish a sentence.\n");
         }
-        input.Append(text);
+        input.Append(alternative is null ? text : TwoReadings(text, alternative));
 
         var request = new GenerateRequest(
             SystemInstruction: new Content([new Part(Prompt(_customInstructions(), _vocabulary()))]),
