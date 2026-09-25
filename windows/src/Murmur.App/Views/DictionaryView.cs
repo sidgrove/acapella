@@ -13,7 +13,8 @@ namespace Murmur.App.Views;
 /// </summary>
 /// <remarks>
 /// Both entry kinds live in one list — they are two shapes of the same idea, and you want to
-/// see everything you have taught it at once. The kind is carried by a badge on each row.
+/// see everything you have taught it at once. A correction shows "heard → written"; a word is
+/// just the word. Click a row to edit it.
 /// </remarks>
 public sealed class DictionaryView : UserControl
 {
@@ -72,10 +73,18 @@ public sealed class DictionaryView : UserControl
 
     private void Refresh()
     {
-        var entries = _file.Search(_search.Text ?? string.Empty);
+        // Sorted by what gets written, so every way it mishears "git pull" sits together
+        // under it, and a long list reads like an index rather than in the order it was taught.
+        var entries = _file.Search(_search.Text ?? string.Empty)
+            .OrderBy(e => e.Write, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.Kind)
+            .ThenBy(e => e.Hear, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         _list.Children.Clear();
-        _count.Text = $"{_file.Entries.Count} {(_file.Entries.Count == 1 ? "entry" : "entries")}  ·  edit the file by hand if you like";
+        var words = _file.Entries.Count(e => e.Kind == EntryKind.Term);
+        var fixes = _file.Entries.Count - words;
+        _count.Text = $"{words} {(words == 1 ? "word" : "words")}, {fixes} {(fixes == 1 ? "correction" : "corrections")}  ·  edit the file by hand if you like";
 
         if (entries.Count == 0)
         {
@@ -86,7 +95,20 @@ public sealed class DictionaryView : UserControl
             return;
         }
 
-        foreach (var entry in entries) _list.Children.Add(BuildRow(entry));
+        // One panel, one row per entry and a hairline between them: at eighty-odd entries a
+        // card each made the list several screens long and hard to scan.
+        var rows = new StackPanel();
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (i > 0) rows.Children.Add(new Border { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) });
+            rows.Children.Add(BuildRow(entries[i]));
+        }
+
+        var panel = Card.Standard(rows, Tokens.Space.Snug);
+        panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
+        panel.BorderBrush = Tokens.Brushes.Line;
+        panel.BoxShadow = Tokens.Shadow.Soft;
+        _list.Children.Add(panel);
     }
 
     private Border BuildRow(DictionaryEntry entry)
@@ -94,26 +116,34 @@ public sealed class DictionaryView : UserControl
         var toggle = new Switch { IsChecked = entry.IsEnabled, VerticalAlignment = VerticalAlignment.Center };
         toggle.IsCheckedChanged += (_, _) => _file.Update(entry with { IsEnabled = toggle.IsChecked == true });
 
-        var edit = new SgButton("Edit", SgButton.Kind.Ghost, compact: true);
-        edit.Click += (_, _) => ShowEditor(entry);
-
-        var delete = new SgButton("Delete", SgButton.Kind.Danger, compact: true);
+        // Only the row under the pointer offers Delete; eighty rose buttons down one column
+        // drowned out the words.
+        var delete = new SgButton("Delete", SgButton.Kind.Danger, compact: true) { IsVisible = false };
         delete.Click += (_, _) => _file.Remove(entry.Id);
 
-        var kind = entry.Kind == EntryKind.Correction ? Pill.Amber("Fix") : Pill.Brand("Word");
         Control text = entry.Kind == EntryKind.Correction
             ? Panels.Row(Tokens.Space.Snug, Text.Muted(entry.Hear), Text.Caption("→"), Text.BodyStrong(entry.Write))
             : Text.BodyStrong(entry.Write);
+        text.Opacity = entry.IsEnabled ? 1 : Tokens.Opacity.Disabled;
 
-        var left = Panels.Row(Tokens.Space.Base, kind, text);
-        var right = Panels.Row(Tokens.Space.Snug, edit, delete, toggle);
+        var right = Panels.Row(Tokens.Space.Snug, delete, toggle);
+        right.MinHeight = Tokens.Layout.ButtonHeightSmall;
 
-        var card = Card.Standard(Panels.Split(left, right), Tokens.Space.Roomy);
-        card.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
-        card.BorderBrush = Tokens.Brushes.Line;
-        card.BoxShadow = Tokens.Shadow.Soft;
-        card.Opacity = entry.IsEnabled ? 1 : Tokens.Opacity.Disabled;
-        return card;
+        var row = new Border
+        {
+            Background = Tokens.Brushes.None,
+            CornerRadius = new CornerRadius(Tokens.Radius.Control),
+            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Tight),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            Child = Panels.Split(text, right),
+        };
+        row.PointerEntered += (_, _) => { row.Background = Tokens.Brushes.Surface; delete.IsVisible = true; };
+        row.PointerExited += (_, _) => { row.Background = Tokens.Brushes.None; delete.IsVisible = false; };
+
+        // The switch and Delete mark their own clicks handled, so this only fires for the rest
+        // of the row.
+        row.PointerReleased += (_, e) => { if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Left) ShowEditor(entry); };
+        return row;
     }
 
     private void ShowEditor(DictionaryEntry? entry)
