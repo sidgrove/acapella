@@ -188,6 +188,16 @@ public sealed class DictationEngine : IAsyncDisposable
         /// <summary>How much of <see cref="Buffer"/> has been handed to <see cref="Cloud"/>.</summary>
         public int CloudSent;
 
+        /// <summary>The cloud's final transcript, asked for the moment the key comes up.</summary>
+        public Task<string?>? CloudFinal;
+
+        /// <summary>
+        /// The preview's decode of a piece it is freezing, or null when none has started.
+        /// The final pass reuses that text, so it waits for this and nothing else the
+        /// preview is doing. Set under <c>_bufferLock</c>.
+        /// </summary>
+        public Task? Committing;
+
         public void Dispose()
         {
             Stop.Dispose();
@@ -370,6 +380,17 @@ public sealed class DictationEngine : IAsyncDisposable
     /// memory — a 60-second pass is about 2.5 GB, and past the encoder's ceiling it throws.
     /// </summary>
     public static readonly TimeSpan PreviewWindow = TimeSpan.FromSeconds(25);
+
+    /// <summary>
+    /// The preview window when the cloud is transcribing too. Nothing is cleaned piece by
+    /// piece then, so short pieces cost no joins; they only mean the local reading the
+    /// cleaner waits for is a few seconds of decoding at the key-up, not the whole recording.
+    /// </summary>
+    /// <remarks>
+    /// On 24/09/2026 a 16-second dictation spent 504 ms re-decoding locally after the key-up
+    /// while the cloud's words had been back for 250 ms.
+    /// </remarks>
+    public static readonly TimeSpan CloudPreviewWindow = TimeSpan.FromSeconds(10);
 
     /// <summary>How long shutdown waits for a dictation in flight before giving up on it.</summary>
     public static readonly TimeSpan DisposeGrace = TimeSpan.FromSeconds(5);
@@ -849,8 +870,9 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <remarks>
     /// The offline model decodes many times faster than real time, so a pass over the live
     /// window every 700 ms costs a fraction of a second. A tick that finds the previous one
-    /// still running is skipped, and the final pass waits for the last tick so the model is
-    /// never asked to decode two streams at once.
+    /// still running is skipped. The final pass waits only for a piece being frozen, whose
+    /// text it reuses; a re-decode of the tail is for the screen alone, and waiting for it
+    /// cost up to 433 ms after the key-up. The recogniser takes two decodes at once.
     /// </remarks>
     private async Task PreviewLoopAsync(Session session)
     {
@@ -860,7 +882,7 @@ public sealed class DictationEngine : IAsyncDisposable
         // committed, so the running transcript reads as one piece rather than flickering.
         var committed = string.Empty;
         var committedSamples = 0;
-        var windowSamples = (int)(PreviewWindow.TotalSeconds * AudioChunk.SampleRate);
+        var windowSamples = (int)((session.Cloud is null ? PreviewWindow : CloudPreviewWindow).TotalSeconds * AudioChunk.SampleRate);
         var minimumSamples = (int)(PreviewMinimum.TotalSeconds * AudioChunk.SampleRate);
 
         try
@@ -884,6 +906,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
                 float[] snapshot;
                 float[]? toCommit = null;
+                TaskCompletionSource? committing = null;
                 lock (_bufferLock)
                 {
                     if (!IsCurrent(session)) return;
@@ -906,6 +929,10 @@ public sealed class DictationEngine : IAsyncDisposable
                         {
                             toCommit = span[committedSamples..cut].ToArray();
                             committedSamples = cut;
+                            // Under the same lock the key-up takes to end the session, so
+                            // the final pass either sees this freeze or knows it never began.
+                            committing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                            session.Committing = committing.Task;
                         }
                     }
 
@@ -914,29 +941,38 @@ public sealed class DictationEngine : IAsyncDisposable
 
                 if (toCommit is not null)
                 {
-                    var frozen = (await _transcriber.TranscribeAsync(toCommit, [], cancellationToken).ConfigureAwait(false)).Trim();
-                    if (frozen.Length > 0) committed = committed.Length == 0 ? frozen : committed + " " + frozen;
-
-                    // Recorded for the final pass, which then decodes only what follows.
-                    // Clean-up of the piece starts now, while the user is still talking, so
-                    // the wait after key-up covers the last window of speech only.
-                    lock (_bufferLock)
+                    try
                     {
-                        var previous = session.Committed.Count > 0 ? session.Committed[^1].Clean : null;
-                        // With "review the whole dictation" on, nothing is cleaned early:
-                        // the one call after the key-up sees every sentence with its
-                        // neighbours, at the cost of waiting for it.
-                        // With cloud transcription the local words are only the fallback, so
-                        // cleaning them early would be wasted; the cloud's are cleaned whole.
-                        var cleaner = AiCleanup && !ReviewWholeDictation && session.Cloud is null ? Cleaner : null;
-                        // A silent stretch is a completed, empty piece, not a missing
-                        // one: null here would mean "the AI tier could not" and quietly
-                        // send the whole dictation round again after the key-up.
-                        var job = cleaner is null ? null
-                            : frozen.Length == 0 ? EmptySegmentAsync(previous)
-                            : CleanSegmentAsync(frozen, previous, cleaner);
-                        session.Committed.Add(new CommittedPiece(committedSamples, frozen, job));
-                        session.CommittedSamples = committedSamples;
+                        var frozen = (await _transcriber.TranscribeAsync(toCommit, [], cancellationToken).ConfigureAwait(false)).Trim();
+                        if (frozen.Length > 0) committed = committed.Length == 0 ? frozen : committed + " " + frozen;
+
+                        // Recorded for the final pass, which then decodes only what follows.
+                        // Clean-up of the piece starts now, while the user is still talking, so
+                        // the wait after key-up covers the last window of speech only.
+                        lock (_bufferLock)
+                        {
+                            var previous = session.Committed.Count > 0 ? session.Committed[^1].Clean : null;
+                            // With "review the whole dictation" on, nothing is cleaned early:
+                            // the one call after the key-up sees every sentence with its
+                            // neighbours, at the cost of waiting for it.
+                            // With cloud transcription the local words are only the fallback, so
+                            // cleaning them early would be wasted; the cloud's are cleaned whole.
+                            var cleaner = AiCleanup && !ReviewWholeDictation && session.Cloud is null ? Cleaner : null;
+                            // A silent stretch is a completed, empty piece, not a missing
+                            // one: null here would mean "the AI tier could not" and quietly
+                            // send the whole dictation round again after the key-up.
+                            var job = cleaner is null ? null
+                                : frozen.Length == 0 ? EmptySegmentAsync(previous)
+                                : CleanSegmentAsync(frozen, previous, cleaner);
+                            session.Committed.Add(new CommittedPiece(committedSamples, frozen, job));
+                            session.CommittedSamples = committedSamples;
+                        }
+                    }
+                    finally
+                    {
+                        // Cancelled or failed, the piece was never recorded, and the final
+                        // pass decodes that audio itself.
+                        committing!.TrySetResult();
                     }
                 }
 
@@ -1061,7 +1097,19 @@ public sealed class DictationEngine : IAsyncDisposable
             Interlocked.Increment(ref _transcribing);
             RestoreAudio();
             Level = 0;
-            lock (_bufferLock) _current = null;
+            lock (_bufferLock)
+            {
+                _current = null;
+                // The capture loop appends nothing once the session is no longer current,
+                // so the buffer is complete and its last audio can go to the cloud now.
+                FeedCloud(session);
+            }
+
+            // The end of the dictation goes to the cloud before anything else, so its final
+            // transcript is on its way while the preview settles and the local model decodes.
+            // It used to wait behind the preview, up to 433 ms on a long dictation.
+            if (session.Cloud is { } cloud) session.CloudFinal = FinishCloudAsync(cloud, CloudTranscriber?.Name ?? "cloud", CloudBudget);
+
             await session.Stop.CancelAsync().ConfigureAwait(false);
             Changed?.Invoke(this, EventArgs.Empty);
 
@@ -1082,9 +1130,13 @@ public sealed class DictationEngine : IAsyncDisposable
     {
         try
         {
-            if (session.Preview is { } preview) await preview.ConfigureAwait(false);
+            // Only a piece being frozen is waited for: its text is reused. The preview's
+            // re-decode of the tail is for the screen and is left to finish on its own.
+            Task? committing;
+            lock (_bufferLock) committing = session.Committing;
+            if (committing is not null) await committing.ConfigureAwait(false);
             await previous.ConfigureAwait(false);
-            Log.Info($"stop-to-final processing: {deliveryClock.ElapsedMilliseconds} ms (capture stop and preview wait)");
+            Log.Info($"stop-to-final processing: {deliveryClock.ElapsedMilliseconds} ms (capture stop and preview commit wait)");
             await ProcessAsync(session).ConfigureAwait(false);
         }
         catch (Exception e)
@@ -1095,11 +1147,15 @@ public sealed class DictationEngine : IAsyncDisposable
         finally
         {
             Log.Info($"stop-to-complete: {deliveryClock.ElapsedMilliseconds} ms");
-            session.Dispose();
             Interlocked.Decrement(ref _transcribing);
             // A newer recording owns the preview now; only an idle engine clears it.
             if (_current is null) SetPreview(string.Empty);
             Changed?.Invoke(this, EventArgs.Empty);
+
+            // The preview's last decode may still be inside the model. This chain is what
+            // shutdown waits on before freeing the model, so it ends only once that has too.
+            if (session.Preview is { } preview) await preview.ConfigureAwait(false);
+            session.Dispose();
         }
     }
 
@@ -1150,14 +1206,8 @@ public sealed class DictationEngine : IAsyncDisposable
     {
         var samples = session.Buffer;
 
-        // The end of the dictation goes to the cloud before anything else, so its final
-        // transcript is on its way while the local model decodes.
-        Task<string?>? cloudFinal = null;
-        if (session.Cloud is { } cloud)
-        {
-            lock (_bufferLock) FeedCloud(session);
-            cloudFinal = FinishCloudAsync(cloud, CloudTranscriber?.Name ?? "cloud", CloudBudget);
-        }
+        // Asked for at the key-up, before the preview had settled.
+        var cloudFinal = session.CloudFinal;
 
         // The pre-roll was captured while other playback was still at full volume, so its
         // words are the video's, not the user's. It is the first thing the warm capture
@@ -1262,9 +1312,14 @@ public sealed class DictationEngine : IAsyncDisposable
         // model heard speech is treated as a failure, not as silence.
         string? transcribedBy = null;
         string? localRaw = null;
+        string? localReading = null;
         if (cloudFinal is not null && await cloudFinal.ConfigureAwait(false) is { } cloudText && !string.IsNullOrWhiteSpace(cloudText))
         {
             localRaw = raw;
+            // The cleaner's second reading loses the full stop the speech model closes every
+            // frozen piece with: those cuts fall at pauses, not sentence ends, and with the
+            // cloud on they come every few seconds.
+            localReading = JoinText(string.Join(' ', committed.Where(c => c.Raw.Length > 0).Select(c => PieceText.WithoutArtificialStop(c.Raw))), tailRaw);
             raw = string.Join(' ', cloudText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             transcribedBy = CloudTranscriber?.Name;
         }
@@ -1376,7 +1431,7 @@ public sealed class DictationEngine : IAsyncDisposable
             {
                 // With two readings that differ, the cleaner chooses between them; identical
                 // ones, or a local model that heard nothing, leave only the one.
-                var alternative = localRaw is null ? null : ForCleaner(new DictionaryCorrector(entries).Apply(localRaw).Text);
+                var alternative = localReading is null ? null : ForCleaner(new DictionaryCorrector(entries).Apply(localReading).Text);
                 var twoReadings = alternative is { Length: > 0 } && !SameWords(alternative, forCleaner);
                 var cleaned = await CleanWithinBudgetAsync(
                     () => twoReadings ? cleaner.CleanTwoReadingsAsync(forCleaner, alternative!, budget.Token) : cleaner.CleanAsync(forCleaner, budget.Token),

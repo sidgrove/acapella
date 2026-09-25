@@ -27,11 +27,18 @@ public sealed class SendInputTextInjector : ITextInjector
     /// Above this many characters, paste instead of typing.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Low on purpose. Typing is one message per character and browsers, Teams, Slack and
     /// the like process each one slowly enough that a sentence visibly types itself out.
-    /// A paste is one message. Short phrases are still typed; the app copies their transcript separately.
+    /// A paste is one message. Only a word or two is still typed; the app copies every
+    /// transcript to the clipboard anyway, so pasting costs nothing that typing kept.
+    /// </para>
+    /// <para>
+    /// Was 40 until 25/09/2026: a 31-character dictation took 405 ms to type, against about
+    /// 60 ms for the clipboard settle and one Ctrl+V.
+    /// </para>
     /// </remarks>
-    private const int PasteThreshold = 40;
+    private const int PasteThreshold = 12;
 
     /// <summary>Characters per <c>SendInput</c> call when typing.</summary>
     private const int ChunkSize = 40;
