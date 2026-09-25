@@ -250,4 +250,32 @@ public sealed class RecordingArchiveTests
             if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
         }
     }
+
+    [Fact]
+    public void Only_a_corrected_recording_is_kept_and_one_never_settled_goes_after_the_hour()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"acapella-archive-{Guid.NewGuid():N}");
+        try
+        {
+            var archive = new RecordingArchive(folder);
+            var at = new DateTimeOffset(2026, 9, 25, 14, 0, 0, TimeSpan.FromHours(1));
+            archive.Save(at, new float[1600]);
+            archive.Save(at.AddSeconds(1), new float[1600]);
+            archive.Save(at.AddSeconds(2), new float[1600]);
+
+            archive.Keep(at);
+            archive.Discard(at.AddSeconds(1));
+            File.SetLastWriteTime(archive.PathFor(at.AddSeconds(2)), DateTime.Now.AddHours(-2));
+            archive.Save(at.AddSeconds(3), new float[1600]);
+
+            archive.Find(at).ShouldNotBeNull().ShouldStartWith(archive.KeptFolder);
+            archive.Find(at.AddSeconds(1)).ShouldBeNull();
+            archive.Find(at.AddSeconds(2)).ShouldBeNull("never settled, so gone once it is over an hour old");
+            archive.Find(at.AddSeconds(3)).ShouldNotBeNull("still waiting on its edit check");
+        }
+        finally
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        }
+    }
 }

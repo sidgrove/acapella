@@ -70,8 +70,8 @@ public sealed record SettingsData
     public bool KeepHistory { get; set; } = true;
 
     /// <summary>
-    /// Keep the audio of the last month's dictations on this PC, so a change of model or
-    /// prompt can be replayed over real speech and scored. Nothing is uploaded.
+    /// Keep the audio of the dictations the user corrected afterwards, on this PC, for tuning
+    /// to their voice. Everything else is deleted once its edit check is done. Nothing is uploaded.
     /// </summary>
     public bool KeepRecordings { get; set; }
 

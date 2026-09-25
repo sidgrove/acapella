@@ -4,7 +4,7 @@ using Murmur.Abstractions;
 namespace Murmur.Core;
 
 /// <summary>
-/// Keeps the audio of recent dictations on disk, next to the history.
+/// Keeps the audio of the dictations the user had to correct, on disk next to the history.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,9 +15,13 @@ namespace Murmur.Core;
 /// </para>
 /// <para>
 /// Files are named after the dictation's key-release time, the <c>At</c> of its history
-/// row, so the two can be matched without a shared id. Only recent audio is kept: anything
-/// older than <see cref="KeepFor"/>, and the oldest files past <see cref="MaxBytes"/>, are
-/// deleted after each save. Nothing leaves the machine.
+/// row, so the two can be matched without a shared id. Nothing leaves the machine.
+/// </para>
+/// <para>
+/// Only what needed amending is kept (Dave, 25/09/2026). Each recording is held only until
+/// the edit check says whether the user changed the words: then it is either moved to
+/// <see cref="KeptFolder"/> or deleted. Anything the check never settles (a spoken send, a
+/// field that cannot be read, the app closing) goes after <see cref="KeepFor"/>.
 /// </para>
 /// </remarks>
 public sealed class RecordingArchive
@@ -36,8 +40,8 @@ public sealed class RecordingArchive
     /// <summary>Where the recordings are kept.</summary>
     public string Folder { get; }
 
-    /// <summary>How long a recording is kept.</summary>
-    public TimeSpan KeepFor { get; init; } = TimeSpan.FromDays(30);
+    /// <summary>How long a recording waiting on its edit check is held before it is deleted unread.</summary>
+    public TimeSpan KeepFor { get; init; } = TimeSpan.FromHours(1);
 
     /// <summary>The most the folder may hold before the oldest recordings go.</summary>
     public long MaxBytes { get; init; } = 2L * 1024 * 1024 * 1024;
@@ -87,6 +91,19 @@ public sealed class RecordingArchive
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Log.Warn($"could not keep the corrected recording: {e.Message}");
+        }
+    }
+
+    /// <summary>Deletes the recording of the dictation released at <paramref name="at"/>, which needed no amending. Failures go to the log.</summary>
+    public void Discard(DateTimeOffset at)
+    {
+        try
+        {
+            lock (_gate) File.Delete(PathFor(at));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"could not delete the recording: {e.Message}");
         }
     }
 

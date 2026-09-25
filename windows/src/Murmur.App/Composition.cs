@@ -169,7 +169,8 @@ public sealed class Composition : IAsyncDisposable
             edits.Finished += (_, edit) =>
             {
                 transcripts.Update(r => r.At == edit.At, r => r with { EditChecked = true, EditedText = edit.IsEdited ? edit.Final : null });
-                if (edit.IsEdited && settings.Data.KeepRecordings) archive.Keep(edit.At);
+                // Only the audio of what needed amending is kept; the rest goes now.
+                if (edit.IsEdited && settings.Data.KeepRecordings) archive.Keep(edit.At); else archive.Discard(edit.At);
                 _ = learner.LearnAsync(edit);
             };
 
@@ -224,7 +225,9 @@ public sealed class Composition : IAsyncDisposable
                 if (!settings.Data.KeepHistory) return;
 
                 // Off the typing path: the text is already in the field by now.
-                if (settings.Data.KeepRecordings && !result.Audio.IsEmpty) _ = Task.Run(() => archive.Save(result.At, result.Audio));
+                // Held until the edit check says whether it needed amending, so without that
+                // check there is nothing to decide with and nothing is saved.
+                if (settings.Data.KeepRecordings && settings.Data.LearnFromEdits && !result.Audio.IsEmpty) _ = Task.Run(() => archive.Save(result.At, result.Audio));
 
                 transcripts.Add(new TranscriptRecord
                 {
