@@ -72,6 +72,70 @@ public static class EditAlignment
         return field[f[start].Start..(f[end - 1].Start + f[end - 1].Text.Length)];
     }
 
+    /// <summary>
+    /// Whether <paramref name="found"/> sits at the very start of <paramref name="field"/>, so
+    /// the read may have begun part-way through the dictation rather than before it.
+    /// </summary>
+    public static bool TouchesStart(string field, string found)
+    {
+        var at = field.LastIndexOf(found, StringComparison.Ordinal);
+        return at >= 0 && string.IsNullOrWhiteSpace(field[..at]);
+    }
+
+    /// <summary>
+    /// Whether the first word of <paramref name="found"/> is only the tail of a typed word
+    /// ("ccruals" for "accruals"): a read that began mid-word, never an edit.
+    /// </summary>
+    public static bool StartsMidWord(string typed, string found) => ClippedStart(typed, found, wholeWords: false) is not null;
+
+    /// <summary>
+    /// <paramref name="found"/> with the typed words before the first word it shows put back,
+    /// for a read that began part-way through the dictation (seen in Claude's window on
+    /// 25/09/2026: "ccruals? Firstly" for "…prepayments and accruals? Firstly"). Unchanged
+    /// when nothing is missing or the missing part looks like an edit.
+    /// </summary>
+    /// <param name="typed">What was typed.</param>
+    /// <param name="found">The field's version of it, from <see cref="Find"/>.</param>
+    /// <param name="wholeWords">
+    /// Also restore whole words missing from the start. Only when there is other evidence the
+    /// read was cut short, because a user deleting a leading "And" looks exactly the same.
+    /// </param>
+    public static string RestoreClippedStart(string typed, string found, bool wholeWords) => ClippedStart(typed, found, wholeWords) ?? found;
+
+    private static string? ClippedStart(string typed, string found, bool wholeWords)
+    {
+        var t = Words(typed);
+        var f = Words(found);
+        var (ops, _) = Align(t, f);
+
+        // Walk to the first word the two share.
+        int i = 0, j = 0, paired = -1;
+        foreach (var op in ops)
+        {
+            if (op == Op.Same) break;
+            if (op == Op.Substitute) paired = i;
+            if (op is Op.Substitute or Op.Delete) i++;
+            if (op is Op.Substitute or Op.Insert) j++;
+        }
+        if (i == 0 || i >= t.Count || j >= f.Count) return null;
+
+        // More than a fragment of one word ahead of the match is the user's own writing.
+        if (j > 1) return null;
+        if (j == 1)
+        {
+            if (paired < 0) return null;
+            var fragment = f[0].Bare;
+            var word = t[paired].Bare;
+            if (fragment.Length >= word.Length || !word.EndsWith(fragment, StringComparison.OrdinalIgnoreCase)) return null;
+        }
+        else if (!wholeWords)
+        {
+            return null;
+        }
+
+        return typed[..t[i].Start] + found[f[j].Start..];
+    }
+
     /// <summary>The runs of words the user replaced, in order. Words only added or only removed are not listed.</summary>
     public static IReadOnlyList<WordChange> Changes(string typed, string final)
     {

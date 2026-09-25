@@ -39,13 +39,13 @@ public sealed class ScreenContextTests
         }
     }
 
-    private static async Task<(ScreenCleaner Cleaner, RecordingTextInjector Injector)> DictateAsync(bool seesScreen)
+    private static async Task<(ScreenCleaner Cleaner, RecordingTextInjector Injector)> DictateAsync(bool seesScreen, bool matchStyle = false, FocusedWindow? window = null, IDecisionModel? decisions = null, Func<Task>? whileTalking = null)
     {
         var hotkey = new FakeHotkeySource();
         var injector = new RecordingTextInjector
         {
             CaretText = "Hi Dave, Siobhan here about the management pack.\n\n",
-            ForegroundWindow = new FocusedWindow("OUTLOOK", "RE: Management pack - Inbox"),
+            ForegroundWindow = window ?? new FocusedWindow("OUTLOOK", "RE: Management pack - Inbox"),
         };
         var cleaner = new ScreenCleaner();
         var capture = FakeAudioCapture.Tone(0.8);
@@ -54,10 +54,13 @@ public sealed class ScreenContextTests
             AiCleanup = true,
             Cleaner = cleaner,
             CleanupSeesScreen = seesScreen,
+            MatchStyleToApp = matchStyle,
+            Decisions = decisions,
         };
 
         hotkey.Press();
         await Wait.UntilAsync(() => capture.Delivered);
+        if (whileTalking is not null) await whileTalking();
         hotkey.Release();
         await Wait.UntilAsync(() => engine.State == DictationState.Idle && injector.Injected.Count > 0);
         return (cleaner, injector);
@@ -79,6 +82,56 @@ public sealed class ScreenContextTests
         var (cleaner, _) = await DictateAsync(seesScreen: false);
 
         cleaner.Screens.ShouldHaveSingleItem().ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task With_styles_on_an_email_app_is_written_as_email_even_without_the_screen()
+    {
+        var (cleaner, _) = await DictateAsync(seesScreen: false, matchStyle: true);
+
+        var screen = cleaner.Screens.ShouldHaveSingleItem().ShouldNotBeNull();
+        screen.Style.ShouldBe(WritingStyle.Email);
+        screen.Window.ShouldBeNull();
+        screen.BeforeCaret.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task An_app_the_rules_cannot_place_is_put_to_the_decision_model_while_the_user_talks()
+    {
+        var jev = new FakeDecisionModel();
+        jev.Answers["style"] = new Decision("style", null, "prompt", 0.9);
+        jev.Release.SetResult();
+
+        var (cleaner, _) = await DictateAsync(seesScreen: true, matchStyle: true, window: new FocusedWindow("chrome", "Acme internal tool - Google Chrome"), decisions: jev,
+            whileTalking: async () => (await Wait.UntilAsync(() => jev.Calls.Count > 0)).ShouldBeTrue());
+
+        cleaner.Screens.ShouldHaveSingleItem().ShouldNotBeNull().Style.ShouldBe(WritingStyle.Prompt);
+        // Its other questions about the dictation are asked separately, after the key-up.
+        var call = jev.Calls.Where(c => c.Keys.SequenceEqual(["style"])).ShouldHaveSingleItem();
+        call.State.ShouldContain("Acme internal tool");
+    }
+
+    [Fact]
+    public async Task A_slow_decision_model_is_not_waited_for()
+    {
+        var jev = new FakeDecisionModel();   // never released
+
+        var (cleaner, injector) = await DictateAsync(seesScreen: true, matchStyle: true, window: new FocusedWindow("chrome", "Acme internal tool - Google Chrome"), decisions: jev);
+
+        injector.Injected.ShouldNotBeEmpty();
+        cleaner.Screens.ShouldHaveSingleItem().ShouldNotBeNull().Style.ShouldBe(WritingStyle.Unknown);
+    }
+
+    [Fact]
+    public void A_style_on_its_own_is_framed_ahead_of_the_dictation_and_one_with_the_screen_after_it()
+    {
+        var alone = GeminiCleaner.Screen(new ScreenContext(null, null, WritingStyle.Email));
+        alone.ShouldStartWith("Where it is going: an email.");
+        alone.ShouldEndWith("The dictation to clean:\n");
+
+        var both = GeminiCleaner.Screen(new ScreenContext(new FocusedWindow("slack", "general"), "hi all", WritingStyle.Chat));
+        both.IndexOf("<<end of screen>>", StringComparison.Ordinal).ShouldBeLessThan(both.IndexOf("a chat message", StringComparison.Ordinal));
+        GeminiCleaner.StyleGuide(WritingStyle.Unknown).ShouldBeEmpty();
     }
 
     [Fact]

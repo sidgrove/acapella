@@ -49,6 +49,12 @@ public sealed record TranscriptRecord
 
     /// <summary>The words as the user left them in the field, when they changed any. The truest record of what should have been typed.</summary>
     public string? EditedText { get; init; }
+
+    /// <summary>The app it was typed into, e.g. "claude" or "slack", when that was read.</summary>
+    public string? App { get; init; }
+
+    /// <summary>The kind of writing the clean-up was told it was ("Email", "Chat", "Prompt", "Document"), or null.</summary>
+    public string? Style { get; init; }
 }
 
 /// <summary>

@@ -61,11 +61,18 @@ public sealed class EditWatcher
         get { lock (_lock) return _current; }
     }
 
+    /// <summary>The widest read made when the first one seems to have started part-way through the dictation.</summary>
+    public const int WidestRead = 20_000;
+
     /// <summary>Starts watching <paramref name="typed"/> in the field <paramref name="target"/>, ending any earlier watch.</summary>
     /// <param name="at">The dictation's release time, which identifies it in the history.</param>
     /// <param name="typed">What was typed, without any joining space or full stop.</param>
     /// <param name="target">The field's identity from <see cref="ITextInjector.FocusTarget"/>; null means it cannot be told apart, and nothing is watched.</param>
-    public void Watch(DateTimeOffset at, string typed, string? target)
+    /// <param name="textBefore">
+    /// Whether the read at key-down found text before the caret, so the dictation does not
+    /// start the text the field exposes and a read that begins exactly at it was cut short.
+    /// </param>
+    public void Watch(DateTimeOffset at, string typed, string? target, bool textBefore = false)
     {
         if (target is null || string.IsNullOrWhiteSpace(typed)) return;
 
@@ -74,7 +81,7 @@ public sealed class EditWatcher
         {
             _watch?.Cancel();
             _watch = watch;
-            _current = Task.Run(() => RunAsync(at, typed, target, watch.Token), CancellationToken.None);
+            _current = Task.Run(() => RunAsync(at, typed, target, textBefore, watch.Token), CancellationToken.None);
         }
     }
 
@@ -84,11 +91,12 @@ public sealed class EditWatcher
         lock (_lock) _watch?.Cancel();
     }
 
-    private async Task RunAsync(DateTimeOffset at, string typed, string target, CancellationToken cancellationToken)
+    private async Task RunAsync(DateTimeOffset at, string typed, string target, bool textBefore, CancellationToken cancellationToken)
     {
         string? lastSeen = null;
         var reason = "two minutes passed";
         var misses = 0;
+        var startUnread = false;
         var clock = System.Diagnostics.Stopwatch.StartNew();
 
         try
@@ -116,12 +124,38 @@ public sealed class EditWatcher
                     continue;
                 }
 
-                if (EditAlignment.Find(typed, around) is not { } found)
+                // A read that starts exactly where the dictation does may have started inside
+                // it: Claude's window gave back "ccruals? Firstly" for "…and accruals? Firstly"
+                // while the user changed nothing, and the missing start was logged as deleted.
+                // A wider read settles it; if even that stops at the same place, the unseen
+                // start is taken to be as typed, not as removed.
+                var found = EditAlignment.Find(typed, around);
+                var unreadHere = false;
+                var suspect = found is null
+                    ? textBefore
+                    : (textBefore || EditAlignment.StartsMidWord(typed, found)) && EditAlignment.TouchesStart(around, found);
+                if (suspect)
+                {
+                    var wide = Math.Min(WidestRead, 4 * (typed.Length + Margin));
+                    if (await _injector.ReadTextAroundCaretAsync(wide, typed.Length + Margin, cancellationToken).ConfigureAwait(false) is { } wider
+                        && EditAlignment.Find(typed, wider) is { } again)
+                    {
+                        (found, around) = (again, wider);
+                    }
+                    if (found is not null && EditAlignment.TouchesStart(around, found) && (textBefore || EditAlignment.StartsMidWord(typed, found)))
+                    {
+                        found = EditAlignment.RestoreClippedStart(typed, found, wholeWords: textBefore);
+                        unreadHere = true;
+                    }
+                }
+
+                if (found is null)
                 {
                     reason = lastSeen is null ? "never found in the field" : "sent or cleared";
                     break;
                 }
                 lastSeen = found;
+                startUnread = unreadHere;
             }
         }
         catch (OperationCanceledException)
@@ -141,9 +175,10 @@ public sealed class EditWatcher
 
         var changes = EditAlignment.Changes(typed, lastSeen);
         var edit = new DictationEdit(at, typed, lastSeen, changes, EditAlignment.WordErrorRate(typed, lastSeen));
+        var unread = startUnread ? "; the start could not be read back" : string.Empty;
         Log.Info(edit.IsEdited
-            ? $"edit check: {edit.WordErrorRate:P0} of words changed{(changes.Count > 0 ? ": " + string.Join("; ", changes.Select(c => $"{c.Typed} -> {c.Final}")) : string.Empty)} ({reason})"
-            : $"edit check: left as typed ({reason})");
+            ? $"edit check: {edit.WordErrorRate:P0} of words changed{(changes.Count > 0 ? ": " + string.Join("; ", changes.Select(c => $"{c.Typed} -> {c.Final}")) : string.Empty)} ({reason}{unread})"
+            : $"edit check: left as typed ({reason}{unread})");
 
         try { Finished?.Invoke(this, edit); }
         catch (Exception e) { Log.Warn($"edit check could not be recorded: {e.Message}"); }

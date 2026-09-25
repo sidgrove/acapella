@@ -223,10 +223,30 @@ public sealed record FocusedWindow(string App, string Title);
 /// </summary>
 /// <param name="Window">The app and its window title, or null.</param>
 /// <param name="BeforeCaret">The text just before the caret, or null.</param>
-public sealed record ScreenContext(FocusedWindow? Window, string? BeforeCaret)
+/// <param name="Style">What kind of writing the app is for, or <see cref="WritingStyle.Unknown"/>.</param>
+public sealed record ScreenContext(FocusedWindow? Window, string? BeforeCaret, WritingStyle Style = WritingStyle.Unknown)
 {
     /// <summary>Whether there is anything to show.</summary>
-    public bool IsEmpty => Window is null && string.IsNullOrWhiteSpace(BeforeCaret);
+    public bool IsEmpty => Window is null && string.IsNullOrWhiteSpace(BeforeCaret) && Style == WritingStyle.Unknown;
+}
+
+/// <summary>What kind of writing a dictation is going into, judged from the app it is typed into.</summary>
+public enum WritingStyle
+{
+    /// <summary>Not known; the clean-up writes as it always has.</summary>
+    Unknown,
+
+    /// <summary>A chat message: Slack, Teams, WhatsApp.</summary>
+    Chat,
+
+    /// <summary>An email: Outlook, Gmail.</summary>
+    Email,
+
+    /// <summary>A prompt to an AI assistant or a coding tool: Claude, ChatGPT, Cursor, a terminal.</summary>
+    Prompt,
+
+    /// <summary>A document: Word, Google Docs, Notion.</summary>
+    Document,
 }
 
 /// <summary>Turns audio into text.</summary>

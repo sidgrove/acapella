@@ -8,7 +8,8 @@ using Murmur.Speech;
 namespace Murmur.App;
 
 /// <summary>
-/// <c>--report</c> and <c>--compare</c>: the quality of recent dictations, and how other
+/// <c>--report</c>, <c>--export-training</c> and <c>--compare</c>: the quality of recent
+/// dictations, the history as training examples, and how other
 /// clean-up models would have done on the same ones.
 /// </summary>
 /// <remarks>
@@ -32,6 +33,7 @@ internal static class QualityCommands
     public static int? TryRun(string[] args)
     {
         if (args.Contains("--report", StringComparer.OrdinalIgnoreCase)) return Report(Days(args));
+        if (args.Contains("--export-training", StringComparer.OrdinalIgnoreCase)) return ExportTraining();
 
         var compare = Array.FindIndex(args, a => string.Equals(a, "--compare", StringComparison.OrdinalIgnoreCase));
         if (compare >= 0)
@@ -54,6 +56,24 @@ internal static class QualityCommands
     {
         var at = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
         return at >= 0 && at + 1 < args.Length && int.TryParse(args[at + 1], CultureInfo.InvariantCulture, out var value) && value > 0 ? value : null;
+    }
+
+    /// <summary>
+    /// Writes every dictation as a training example (heard, typed, what the user left, and
+    /// the recording where kept) to <c>training\training.jsonl</c> in the data folder. Free
+    /// and local: nothing is sent anywhere.
+    /// </summary>
+    private static int ExportTraining()
+    {
+        var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
+        var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
+        var examples = TrainingSet.From(transcripts.Records, archive.Find);
+
+        var folder = Path.Combine(AppPaths.Root, "training");
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, "training.jsonl");
+        File.WriteAllText(path, TrainingSet.ToJsonLines(examples));
+        return Emit("training-export.txt", $"{TrainingSet.Summary(examples)}\nWritten to {path}\n");
     }
 
     private static int Report(int days)

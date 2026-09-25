@@ -177,6 +177,20 @@ public sealed record SettingsData
     /// </summary>
     public bool LearnFromEdits { get; set; } = true;
 
+    /// <summary>
+    /// Put a learnt fix into the dictionary without asking, once Jev is sure it was a
+    /// mishearing or the same fix has been made twice. Each one can be undone from the
+    /// Dictionary tab. Off leaves every fix as a suggestion.
+    /// </summary>
+    public bool AddLearntFixes { get; set; } = true;
+
+    /// <summary>
+    /// Shape the clean-up to where the text is going: an email gets paragraphs and its
+    /// greeting on its own line, a chat stays one message, a prompt to an AI keeps code and
+    /// file names as written.
+    /// </summary>
+    public bool MatchStyleToApp { get; set; } = true;
+
     /// <summary>The user's own rules for the AI clean-up, appended to the prompt. Null for none.</summary>
     public string? CustomInstructions { get; set; }
 

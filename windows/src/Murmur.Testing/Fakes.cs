@@ -283,11 +283,17 @@ public sealed class RecordingTextInjector : ITextInjector
 
     private int _aroundCaretReads;
 
+    /// <summary>
+    /// When set, answers each read by how far back it asks for, for an app whose read starts
+    /// part-way through the text unless asked for more. Wins over <see cref="AroundCaretText"/>.
+    /// </summary>
+    public Func<int, string?>? AroundCaretFor { get; set; }
+
     /// <inheritdoc />
     public Task<string?> ReadTextAroundCaretAsync(int before, int after, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _aroundCaretReads);
-        return Task.FromResult(AroundCaretText);
+        return Task.FromResult(AroundCaretFor is { } read ? read(before) : AroundCaretText);
     }
 
     /// <summary>The window a test says is in front. Null, as for a platform that cannot tell, by default.</summary>

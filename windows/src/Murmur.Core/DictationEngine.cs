@@ -57,6 +57,8 @@ public enum TrailingFullStop
 /// <param name="Audio">The recording the text came from, for the archive kept for accuracy testing.</param>
 /// <param name="TranscribedBy">The cloud model whose words these are, or null for the local model's.</param>
 /// <param name="LocalRawText">The local model's transcript, kept beside a cloud one for comparison.</param>
+/// <param name="App">The app the dictation was typed into, when it was read at key-down.</param>
+/// <param name="Style">The kind of writing the clean-up was told the app is for.</param>
 public sealed record DictationResult(
     DateTimeOffset At,
     TimeSpan AudioDuration,
@@ -69,7 +71,9 @@ public sealed record DictationResult(
     CleanupPath Cleanup = CleanupPath.Off,
     ReadOnlyMemory<float> Audio = default,
     string? TranscribedBy = null,
-    string? LocalRawText = null);
+    string? LocalRawText = null,
+    string? App = null,
+    WritingStyle Style = WritingStyle.Unknown);
 
 /// <summary>How a dictation went through the AI tier. Every path is named so the log can say which one ran.</summary>
 public enum CleanupPath
@@ -184,6 +188,9 @@ public sealed class DictationEngine : IAsyncDisposable
 
         /// <summary>The foreground app and window title when the key went down, or null.</summary>
         public Task<FocusedWindow?>? Window;
+
+        /// <summary>What kind of writing the app in front is for, worked out while the user talks; null when the setting is off.</summary>
+        public Task<WritingStyle>? Style;
 
         /// <summary>The cloud transcription fed while the key is held, or null.</summary>
         public IStreamingTranscription? Cloud;
@@ -335,6 +342,14 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>How much text before the caret is read at key-down when the clean-up sees the screen.</summary>
     public const int ScreenReadLength = 1000;
+
+    /// <summary>
+    /// Whether the clean-up is told what kind of writing the app in front is for (an email,
+    /// a chat, a prompt to an AI, a document), so the layout suits it. Worked out at
+    /// key-down from the app and its title, with the decision model asked about anything
+    /// the rules cannot place while the user is still talking.
+    /// </summary>
+    public bool MatchStyleToApp { get; set; } = true;
 
     /// <summary>
     /// Reads the field back after typing to see what the user changed, or null to not look.
@@ -661,15 +676,17 @@ public sealed class DictationEngine : IAsyncDisposable
             // First thing at key-down, on a pool thread, so an app that answers slowly
             // cannot hold the recording. Nothing waits for it before delivery.
             var screen = CleanupSeesScreen && AiCleanup && Cleaner is not null;
-            if ((MatchCaseToCaret || JoinDictations || screen) && InjectText)
+            var style = MatchStyleToApp && AiCleanup && Cleaner is not null;
+            if ((MatchCaseToCaret || JoinDictations || screen || style) && InjectText)
             {
                 var injector = _injector;
                 var stop = session.Stop.Token;
                 // One read serves the capital, the join and the clean-up; the first two only
                 // look at its last few characters.
-                var length = screen ? ScreenReadLength : CaretCase.ContextLength;
+                var length = screen || style ? ScreenReadLength : CaretCase.ContextLength;
                 session.CaretContext = Task.Run(() => injector.ReadTextBeforeCaretAsync(length, stop), CancellationToken.None);
-                if (screen) session.Window = Task.Run(() => injector.ForegroundWindow, CancellationToken.None);
+                if (screen || style) session.Window = Task.Run(() => injector.ForegroundWindow, CancellationToken.None);
+                if (style) session.Style = StyleAsync(session.Window!, session.CaretContext, Decisions);
             }
 
             // Opened now so the socket and setup, about half a second, overlap the first words.
@@ -1467,13 +1484,14 @@ public sealed class DictationEngine : IAsyncDisposable
                 // ones, or a local model that heard nothing, leave only the one.
                 var alternative = localReading is null ? null : ForCleaner(new DictionaryCorrector(entries).Apply(localReading).Text);
                 var twoReadings = alternative is { Length: > 0 } && !SameWords(alternative, forCleaner);
-                var screen = CleanupSeesScreen ? await ScreenAsync(session).ConfigureAwait(false) : null;
+                var screen = CleanupSeesScreen || MatchStyleToApp ? await ScreenAsync(session, CleanupSeesScreen).ConfigureAwait(false) : null;
                 var cleaned = await CleanWithinBudgetAsync(
                     () => twoReadings ? cleaner.CleanTwoReadingsAsync(forCleaner, alternative!, screen, budget.Token) : cleaner.CleanWithScreenAsync(forCleaner, screen, budget.Token),
                     budget.Token).ConfigureAwait(false);
                 if (twoReadings) note = "chose between the cloud and local readings";
-                if (screen is not null) note = (note is null ? string.Empty : note + "; ")
+                if (screen is not null && (screen.Window is not null || !string.IsNullOrWhiteSpace(screen.BeforeCaret))) note = (note is null ? string.Empty : note + "; ")
                     + $"saw {screen.Window?.App ?? "an unknown app"}{(screen.BeforeCaret is { Length: > 0 } before ? $" and {before.Length} chars before the caret" : string.Empty)}";
+                if (screen is { Style: not WritingStyle.Unknown }) note = (note is null ? string.Empty : note + "; ") + $"written as {screen.Style.ToString().ToLowerInvariant()}";
                 if (cleaned is not null && !CleanupGuard.IsPlausible(forCleaner, cleaned))
                 {
                     // The model summarised or padded. Wispr-grade means never doing that to
@@ -1524,7 +1542,9 @@ public sealed class DictationEngine : IAsyncDisposable
             Cleanup: path,
             Audio: audio,
             TranscribedBy: transcribedBy,
-            LocalRawText: localRaw);
+            LocalRawText: localRaw,
+            App: WindowOf(session)?.App,
+            Style: StyleOf(session));
 
         if (cleanedBy is not null || !AiCleanup) LastFault = null;
 
@@ -1567,9 +1587,12 @@ public sealed class DictationEngine : IAsyncDisposable
             _lastDelivery = delivered ? new TypedDelivery(typed, stopDropped, target, _hotkey.UserKeyPresses, _clock.Now, send) : null;
 
             // A spoken send empties the field straight away; there is nothing to watch.
-            if (delivered && !send) Edits?.Watch(releasedAt, typed, target);
+            if (delivered && !send) Edits?.Watch(releasedAt, typed, target, textBefore: !string.IsNullOrWhiteSpace(beforeCaret));
         }
 
+        // The history's time is the whole wait felt, key-up to the words in the field; the
+        // typing used to be left out, which read about a quarter of a second quick.
+        result = result with { ProcessingTime = _clock.Now - releasedAt };
         Completed?.Invoke(this, result);
 
         if (!InjectText) return;
@@ -1592,9 +1615,9 @@ public sealed class DictationEngine : IAsyncDisposable
     /// What the key-down reads found on screen, for the clean-up. Reads still running after a
     /// short grace are left out rather than waited for: they are a nicety, the wait is not.
     /// </summary>
-    private static async Task<ScreenContext?> ScreenAsync(Session session)
+    private static async Task<ScreenContext?> ScreenAsync(Session session, bool showScreen)
     {
-        Task[] reads = [.. new Task?[] { session.CaretContext, session.Window }.OfType<Task>()];
+        Task[] reads = [.. new Task?[] { session.CaretContext, session.Window, session.Style }.OfType<Task>()];
         if (reads.Length == 0) return null;
 
         if (reads.Any(r => !r.IsCompleted))
@@ -1603,10 +1626,47 @@ public sealed class DictationEngine : IAsyncDisposable
             catch (Exception e) { Log.Warn($"screen read failed: {e.Message}"); }
         }
 
-        var before = session.CaretContext is { IsCompletedSuccessfully: true } caret ? caret.Result : null;
-        var window = session.Window is { IsCompletedSuccessfully: true } focused ? focused.Result : null;
-        var screen = new ScreenContext(window, before);
+        var before = showScreen && session.CaretContext is { IsCompletedSuccessfully: true } caret ? caret.Result : null;
+        var window = showScreen ? WindowOf(session) : null;
+        var screen = new ScreenContext(window, before, StyleOf(session));
         return screen.IsEmpty ? null : screen;
+    }
+
+    /// <summary>The style worked out at key-down, if it is ready; never waited for.</summary>
+    private static WritingStyle StyleOf(Session session) =>
+        session.Style is { IsCompletedSuccessfully: true } style ? style.Result : WritingStyle.Unknown;
+
+    /// <summary>The foreground app when the key went down, if it has been read; never waited for.</summary>
+    private static FocusedWindow? WindowOf(Session session) =>
+        session.Window is { IsCompletedSuccessfully: true } window ? window.Result : null;
+
+    /// <summary>
+    /// The kind of writing the app in front is for: its rule if it has one, else the decision
+    /// model's answer, asked as soon as the window and the text before the caret are known.
+    /// Runs while the user talks; a slow answer is simply not used.
+    /// </summary>
+    private static async Task<WritingStyle> StyleAsync(Task<FocusedWindow?> window, Task<string?>? caret, IDecisionModel? model)
+    {
+        try
+        {
+            if (await window.ConfigureAwait(false) is not { } focused) return WritingStyle.Unknown;
+            var style = AppStyles.FromWindow(focused);
+            if (style != WritingStyle.Unknown || model is null) return style;
+
+            string? before = null;
+            try { if (caret is not null) before = await caret.ConfigureAwait(false); }
+            catch (OperationCanceledException) { /* judged from the window alone */ }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            style = await AppStyles.AskAsync(model, focused, before, CancellationToken.None).ConfigureAwait(false);
+            var title = focused.Title.Length > 60 ? focused.Title[..60] + "…" : focused.Title;
+            Log.Info($"jev style: {focused.App} ({title}) is {style} in {clock.ElapsedMilliseconds} ms");
+            return style;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"style could not be worked out: {e.Message}");
+            return WritingStyle.Unknown;
+        }
     }
 
     /// <summary>

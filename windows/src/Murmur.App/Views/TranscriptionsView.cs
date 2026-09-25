@@ -108,7 +108,29 @@ public sealed class TranscriptionsView : UserControl
         Refresh();
     }
 
-    private string CountText() => $"{_store.Records.Count} recording{(_store.Records.Count == 1 ? "" : "s")}";
+    private string CountText()
+    {
+        var count = $"{_store.Records.Count} recording{(_store.Records.Count == 1 ? "" : "s")}";
+        return LatencySummary(_store.Records, DateTime.Today) is { } latency ? $"{count}  ·  {latency}" : count;
+    }
+
+    /// <summary>
+    /// Today's wait from key-up to the words in the field: the typical one and the slowest,
+    /// or null before the first dictation of the day. The number every change to speed is
+    /// judged by, where it can be seen without opening the log.
+    /// </summary>
+    public static string? LatencySummary(IReadOnlyList<TranscriptRecord> records, DateTime today)
+    {
+        var waits = records
+            .Where(r => r.At.ToLocalTime().Date == today && r.ProcessingSeconds > 0)
+            .Select(r => r.ProcessingSeconds)
+            .OrderBy(s => s)
+            .ToList();
+        if (waits.Count == 0) return null;
+
+        var typical = waits.Count % 2 == 1 ? waits[waits.Count / 2] : (waits[waits.Count / 2 - 1] + waits[waits.Count / 2]) / 2;
+        return string.Create(CultureInfo.CurrentCulture, $"today {waits.Count} dictated, typical wait {typical:0.00} s, slowest {waits[^1]:0.0} s");
+    }
 
     private static Control Gutter(Control control)
     {
@@ -166,6 +188,23 @@ public sealed class TranscriptionsView : UserControl
 
         if (record.CleanedBy is { Length: > 0 } model) meta.Children.Add(Pill.Brand($"AI · {model}"));
         if (record.CleanupFailed) meta.Children.Add(Pill.Amber("AI fell back · local text typed"));
+        if (record.Style is { Length: > 0 } style) meta.Children.Add(Pill.Neutral(record.App is { Length: > 0 } app ? $"{style} · {app}" : style));
+
+        // What the user changed after it was typed: the words that should have been typed,
+        // and what the accuracy figures and the learnt fixes are made from.
+        var editedBlock = Text.Muted(record.EditedText ?? string.Empty);
+        editedBlock.IsVisible = false;
+        if (record.EditedText is { Length: > 0 })
+        {
+            var showEdit = new SgButton("Show your edit", SgButton.Kind.Quiet, compact: true);
+            showEdit.Click += (_, _) =>
+            {
+                editedBlock.IsVisible = !editedBlock.IsVisible;
+                showEdit.Content = editedBlock.IsVisible ? "Hide your edit" : "Show your edit";
+            };
+            meta.Children.Add(Pill.Amber("You edited this"));
+            meta.Children.Add(showEdit);
+        }
 
         // What the model heard, when it differs from what was typed. Without this there is no
         // way to tell whether a bad result came from the microphone or from the clean-up.
@@ -206,7 +245,7 @@ public sealed class TranscriptionsView : UserControl
         var actions = Panels.Row(Tokens.Space.Tight, copy, delete);
         actions.VerticalAlignment = VerticalAlignment.Top;
 
-        var body = Panels.Column(Tokens.Space.Roomy, Text.Reading(record.Text), rawBlock, Panels.Split(meta, actions));
+        var body = Panels.Column(Tokens.Space.Roomy, Text.Reading(record.Text), rawBlock, editedBlock, Panels.Split(meta, actions));
         body.Margin = new Thickness(0, 0, Tokens.Space.Roomy, 0);
 
         var card = Card.Standard(body, Tokens.Space.Roomy);

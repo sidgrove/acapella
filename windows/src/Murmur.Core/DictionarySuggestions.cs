@@ -28,6 +28,12 @@ public sealed record DictionarySuggestion
 
     /// <summary>Set when the user said no; the same fix is then never offered again.</summary>
     public bool Dismissed { get; init; }
+
+    /// <summary>When the fix went into the dictionary on its own, without the user adding it; null until then.</summary>
+    public DateTimeOffset? LearntAt { get; init; }
+
+    /// <summary>Why it was added on its own, for the Dictionary tab and the log.</summary>
+    public string? LearntBecause { get; init; }
 }
 
 /// <summary>
@@ -72,7 +78,11 @@ public static class DictionarySuggestions
         if (hear.Length == 0 || write.Length == 0 || hear == write) return false;
         if (Count(hear) > MaximumWords || Count(write) > MaximumWords) return false;
         if (!write.Any(char.IsLetter)) return false;
-        return IsCaseOnly(hear, write) || Likeness(Letters(hear), Letters(write)) >= MinimumLikeness;
+        // Letters lost off one end ("And the Circle" to "ircle") are a read that began or
+        // ended part-way through, not a fix anyone makes.
+        var (heard, written) = (Letters(hear), Letters(write));
+        if (written.Length < heard.Length && (heard.EndsWith(written, StringComparison.Ordinal) || heard.StartsWith(written, StringComparison.Ordinal))) return false;
+        return IsCaseOnly(hear, write) || Likeness(heard, written) >= MinimumLikeness;
     }
 
     /// <summary>A few words either side of <paramref name="write"/> in <paramref name="final"/>, to show the fix in context.</summary>
@@ -119,8 +129,8 @@ public static class DictionarySuggestions
 }
 
 /// <summary>
-/// Suggestions waiting for a yes or a no, kept in a small JSON file beside the dictionary so
-/// the dictionary itself only ever holds what the user chose.
+/// Suggestions waiting for a yes or a no, and the ones added on their own, kept in a small
+/// JSON file beside the dictionary so every entry the app added itself can be seen and undone.
 /// </summary>
 public sealed class SuggestionStore
 {
@@ -150,27 +160,48 @@ public sealed class SuggestionStore
 
     /// <summary>Suggestions not yet added or dismissed, most often made first.</summary>
     public IReadOnlyList<DictionarySuggestion> Pending =>
-        [.. _all.Where(s => !s.Dismissed).OrderByDescending(s => s.Count).ThenByDescending(s => s.LastSeen)];
+        [.. _all.Where(s => !s.Dismissed && s.LearntAt is null).OrderByDescending(s => s.Count).ThenByDescending(s => s.LastSeen)];
+
+    /// <summary>Fixes added to the dictionary on their own and not undone, newest first.</summary>
+    public IReadOnlyList<DictionarySuggestion> Learnt =>
+        [.. _all.Where(s => !s.Dismissed && s.LearntAt is not null).OrderByDescending(s => s.LearntAt)];
 
     /// <summary>Raised whenever the suggestions change. Any thread.</summary>
     public event EventHandler? Changed;
 
-    /// <summary>Offers a fix, or counts it again if it has been offered before. A dismissed fix stays dismissed.</summary>
-    public void Offer(string hear, string write, string? example, DateTimeOffset at)
+    /// <summary>
+    /// Offers a fix, or counts it again if it has been offered before, and returns it as it
+    /// now stands. A dismissed fix stays dismissed and comes back with <see cref="DictionarySuggestion.Dismissed"/> set.
+    /// </summary>
+    public DictionarySuggestion Offer(string hear, string write, string? example, DateTimeOffset at)
     {
+        DictionarySuggestion result;
         lock (_lock)
         {
             var index = Array.FindIndex(_all, s => string.Equals(s.Hear, hear, StringComparison.OrdinalIgnoreCase) && string.Equals(s.Write, write, StringComparison.Ordinal));
             if (index >= 0)
             {
-                if (_all[index].Dismissed) return;
-                var updated = _all[index] with { Count = _all[index].Count + 1, LastSeen = at, Example = example ?? _all[index].Example };
-                _all = [.. _all[..index], updated, .. _all[(index + 1)..]];
+                if (_all[index].Dismissed) return _all[index];
+                result = _all[index] with { Count = _all[index].Count + 1, LastSeen = at, Example = example ?? _all[index].Example };
+                _all = [.. _all[..index], result, .. _all[(index + 1)..]];
             }
             else
             {
-                _all = [.. _all, new DictionarySuggestion { Hear = hear, Write = write, LastSeen = at, Example = example }];
+                result = new DictionarySuggestion { Hear = hear, Write = write, LastSeen = at, Example = example };
+                _all = [.. _all, result];
             }
+            Save();
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return result;
+    }
+
+    /// <summary>Records that a suggestion went into the dictionary on its own, and why.</summary>
+    public void MarkLearnt(Guid id, DateTimeOffset at, string because)
+    {
+        lock (_lock)
+        {
+            _all = [.. _all.Select(s => s.Id == id ? s with { LearntAt = at, LearntBecause = because } : s)];
             Save();
         }
         Changed?.Invoke(this, EventArgs.Empty);

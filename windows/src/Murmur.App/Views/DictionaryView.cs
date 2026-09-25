@@ -93,6 +93,7 @@ public sealed class DictionaryView : UserControl
 
         _list.Children.Clear();
         if (BuildSuggestions() is { } suggested) _list.Children.Add(suggested);
+        if (BuildLearnt() is { } learnt) _list.Children.Add(learnt);
         var words = _file.Entries.Count(e => e.Kind == EntryKind.Term);
         var fixes = _file.Entries.Count - words;
         _count.Text = $"{words} {(words == 1 ? "word" : "words")}, {fixes} {(fixes == 1 ? "correction" : "corrections")}  ·  edit the file by hand if you like";
@@ -167,6 +168,59 @@ public sealed class DictionaryView : UserControl
         var panel = Card.Standard(rows, Tokens.Space.Snug);
         panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
         panel.BorderBrush = Tokens.Brushes.PillBorder;
+        panel.BoxShadow = Tokens.Shadow.Soft;
+        panel.Margin = new Thickness(0, 0, 0, Tokens.Space.Base);
+        return panel;
+    }
+
+    /// <summary>How long a fix added on its own stays listed with its Undo.</summary>
+    public static readonly TimeSpan LearntShownFor = TimeSpan.FromDays(14);
+
+    /// <summary>Fixes added on their own recently and still in the dictionary.</summary>
+    public static IReadOnlyList<DictionarySuggestion> RecentlyLearnt(SuggestionStore suggestions, DictionaryFile file, DateTimeOffset now) =>
+        [.. suggestions.Learnt.Where(s => now - s.LearntAt < LearntShownFor
+            && file.Entries.Any(e => e.Kind == EntryKind.Correction && string.Equals(e.Hear.Trim(), s.Hear, StringComparison.OrdinalIgnoreCase)))];
+
+    /// <summary>
+    /// The fixes that went into the dictionary without the user adding them, each with an
+    /// Undo, so nothing the app taught itself is hidden. Hidden while searching.
+    /// </summary>
+    private Border? BuildLearnt()
+    {
+        if (_suggestions is not { } store || !string.IsNullOrWhiteSpace(_search.Text)) return null;
+        var learnt = RecentlyLearnt(store, _file, DateTimeOffset.Now);
+        if (learnt.Count == 0) return null;
+
+        var heading = Panels.Column(Tokens.Space.Hair,
+            Text.BodyStrong("Learnt from your edits"),
+            Text.Muted("Added by themselves because Jev was sure they were mishearings, or you made the same fix twice. Undo one and it's never learnt again."));
+        heading.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Snug, Tokens.Space.Base, Tokens.Space.Snug);
+
+        var rows = new StackPanel { Children = { heading } };
+        foreach (var fix in learnt)
+        {
+            rows.Children.Add(new Border { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) });
+
+            var when = fix.LearntAt is { } at ? at.ToLocalTime().ToString("d MMM", System.Globalization.CultureInfo.CurrentCulture) : string.Empty;
+            var detail = $"{when}  ·  {fix.LearntBecause}";
+            if (fix.Example is { Length: > 0 } example) detail = $"“{example}”  ·  {detail}";
+            var left = Panels.Column(Tokens.Space.Hair,
+                Panels.Row(Tokens.Space.Snug, Text.Muted(fix.Hear), Text.Caption("→"), Text.BodyStrong(fix.Write)),
+                Text.Caption(detail));
+
+            var undo = new SgButton("Undo", SgButton.Kind.Quiet, compact: true);
+            undo.Click += (_, _) => EditLearner.Undo(fix, _file, store);
+
+            rows.Children.Add(new Border
+            {
+                Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
+                Child = Panels.Split(left, undo),
+            });
+        }
+
+        var panel = Card.Standard(rows, Tokens.Space.Snug);
+        panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
+        panel.BorderBrush = Tokens.Brushes.Line;
         panel.BoxShadow = Tokens.Shadow.Soft;
         panel.Margin = new Thickness(0, 0, 0, Tokens.Space.Base);
         return panel;

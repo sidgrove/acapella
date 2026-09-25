@@ -64,6 +64,41 @@ public sealed class RecordingArchive
         }
     }
 
+    /// <summary>
+    /// Where recordings the user corrected are moved to be kept for good. The audio with the
+    /// words the user settled on is the scarcest thing for tuning a model to one voice, so it
+    /// is never pruned; it is small (about a third of a megabyte a dictation).
+    /// </summary>
+    public string KeptFolder => Path.Combine(Folder, "corrected");
+
+    /// <summary>Moves the recording of the dictation released at <paramref name="at"/> out of reach of pruning. Failures go to the log.</summary>
+    public void Keep(DateTimeOffset at)
+    {
+        try
+        {
+            lock (_gate)
+            {
+                var from = PathFor(at);
+                if (!File.Exists(from)) return;
+                Directory.CreateDirectory(KeptFolder);
+                File.Move(from, Path.Combine(KeptFolder, Path.GetFileName(from)), overwrite: true);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"could not keep the corrected recording: {e.Message}");
+        }
+    }
+
+    /// <summary>The recording of the dictation released at <paramref name="at"/>, wherever it is kept, or null.</summary>
+    public string? Find(DateTimeOffset at)
+    {
+        var recent = PathFor(at);
+        if (File.Exists(recent)) return recent;
+        var kept = Path.Combine(KeptFolder, Path.GetFileName(recent));
+        return File.Exists(kept) ? kept : null;
+    }
+
     private void Prune(DateTimeOffset now)
     {
         var files = new DirectoryInfo(Folder).GetFiles("*.wav").OrderByDescending(f => f.Name, StringComparer.Ordinal).ToList();

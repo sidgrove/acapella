@@ -146,6 +146,7 @@ public sealed class Composition : IAsyncDisposable
                 ReviewWholeDictation = settings.Data.ReviewWholeDictation,
                 JoinDictations = settings.Data.JoinDictations,
                 CleanupSeesScreen = settings.Data.CleanupSeesScreen,
+                MatchStyleToApp = settings.Data.MatchStyleToApp,
                 Ducker = PlatformFactory.CreateAudioDucker(),
                 DuckAudio = settings.Data.DuckOtherAudio,
                 AiCleanup = settings.Data.AiCleanup,
@@ -158,17 +159,18 @@ public sealed class Composition : IAsyncDisposable
             };
 
             // What the user makes of each dictation: kept in the history as the words that
-            // should have been typed, and a sound-alike fix becomes a dictionary suggestion.
+            // should have been typed, with its recording kept for good when they changed it,
+            // and a sound-alike fix is learnt: added by itself when Jev is sure or it keeps
+            // happening, otherwise suggested in the Dictionary tab.
+            var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
             var edits = new EditWatcher(injector!);
+            var learner = new EditLearner(dictionary, suggestions, () => engine.Decisions, () => settings.Data.AddLearntFixes);
             engine.Edits = settings.Data.LearnFromEdits ? edits : null;
             edits.Finished += (_, edit) =>
             {
                 transcripts.Update(r => r.At == edit.At, r => r with { EditChecked = true, EditedText = edit.IsEdited ? edit.Final : null });
-                foreach (var (hear, write) in DictionarySuggestions.From(edit.Changes, dictionary.Entries))
-                {
-                    suggestions.Offer(hear, write, DictionarySuggestions.Example(edit.Final, write), edit.At);
-                    Log.Info($"dictionary suggestion: {hear} -> {write}");
-                }
+                if (edit.IsEdited && settings.Data.KeepRecordings) archive.Keep(edit.At);
+                _ = learner.LearnAsync(edit);
             };
 
             var jevBase = settings.Data.JevBaseUrl;
@@ -188,6 +190,7 @@ public sealed class Composition : IAsyncDisposable
                 engine.ReviewWholeDictation = settings.Data.ReviewWholeDictation;
                 engine.JoinDictations = settings.Data.JoinDictations;
                 engine.CleanupSeesScreen = settings.Data.CleanupSeesScreen;
+                engine.MatchStyleToApp = settings.Data.MatchStyleToApp;
                 if (!settings.Data.LearnFromEdits) edits.Stop();
                 engine.Edits = settings.Data.LearnFromEdits ? edits : null;
                 engine.DuckAudio = settings.Data.DuckOtherAudio;
@@ -216,7 +219,6 @@ public sealed class Composition : IAsyncDisposable
             // spent up to 900 ms delivering silence, which is where first words went.
             if (settings.Data.IsEnabled) capture!.WarmUp();
 
-            var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
             engine.Completed += (_, result) =>
             {
                 if (!settings.Data.KeepHistory) return;
@@ -236,6 +238,8 @@ public sealed class Composition : IAsyncDisposable
                     CleanupFailed = result.CleanupFailed,
                     TranscribedBy = result.TranscribedBy,
                     LocalRawText = result.LocalRawText,
+                    App = result.App,
+                    Style = result.Style == WritingStyle.Unknown ? null : result.Style.ToString(),
                 });
             };
         }

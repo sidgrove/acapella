@@ -59,3 +59,27 @@ public sealed class HistoryListTests
         finally { window.Close(); File.Delete(path); }
     }
 }
+
+/// <summary>Today's wait from key-up to text, shown under the history.</summary>
+public sealed class LatencyReadoutTests
+{
+    [Xunit.Fact]
+    public void The_typical_and_slowest_wait_today_are_shown_and_other_days_left_out()
+    {
+        var today = new DateTime(2026, 9, 25);
+        var at = new DateTimeOffset(today.AddHours(10));
+        TranscriptRecord[] records =
+        [
+            new() { At = at, ProcessingSeconds = 0.8 },
+            new() { At = at.AddMinutes(1), ProcessingSeconds = 1.0 },
+            new() { At = at.AddMinutes(2), ProcessingSeconds = 1.6 },
+            new() { At = at.AddDays(-1), ProcessingSeconds = 9 },
+        ];
+
+        var summary = TranscriptionsView.LatencySummary(records, today).ShouldNotBeNull();
+        summary.ShouldContain("3 dictated");
+        summary.ShouldContain("1.00 s");
+        summary.ShouldContain("1.6 s");
+        TranscriptionsView.LatencySummary([], today).ShouldBeNull();
+    }
+}
