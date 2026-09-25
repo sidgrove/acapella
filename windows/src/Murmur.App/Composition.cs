@@ -31,10 +31,12 @@ public sealed class Composition : IAsyncDisposable
         ReloadableTranscriber? transcriber,
         IStartupRegistration? startup,
         IAudioDeviceCatalog? devices,
-        bool platformAvailable)
+        bool platformAvailable,
+        SuggestionStore suggestions)
     {
         Settings = settings;
         Dictionary = dictionary;
+        Suggestions = suggestions;
         Transcripts = transcripts;
         Engine = engine;
         Transcriber = transcriber;
@@ -51,6 +53,9 @@ public sealed class Composition : IAsyncDisposable
 
     /// <summary>The correction dictionary.</summary>
     public DictionaryFile Dictionary { get; }
+
+    /// <summary>Corrections offered because the user made the same fix by hand.</summary>
+    public SuggestionStore Suggestions { get; }
 
     /// <summary>Transcript history.</summary>
     public TranscriptStore Transcripts { get; }
@@ -82,6 +87,7 @@ public sealed class Composition : IAsyncDisposable
 
         var settings = new AppSettings(AppSettings.DefaultPath);
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
+        var suggestions = new SuggestionStore(SuggestionStore.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
 
         // Warm: the microphone stays open between dictations so the first word is never lost
@@ -151,6 +157,20 @@ public sealed class Composition : IAsyncDisposable
                 Decisions = new JevClient(() => settings.Data.JevApiKey, settings.Data.JevBaseUrl, settings.Data.JevModel),
             };
 
+            // What the user makes of each dictation: kept in the history as the words that
+            // should have been typed, and a sound-alike fix becomes a dictionary suggestion.
+            var edits = new EditWatcher(injector!);
+            engine.Edits = settings.Data.LearnFromEdits ? edits : null;
+            edits.Finished += (_, edit) =>
+            {
+                transcripts.Update(r => r.At == edit.At, r => r with { EditChecked = true, EditedText = edit.IsEdited ? edit.Final : null });
+                foreach (var (hear, write) in DictionarySuggestions.From(edit.Changes, dictionary.Entries))
+                {
+                    suggestions.Offer(hear, write, DictionarySuggestions.Example(edit.Final, write), edit.At);
+                    Log.Info($"dictionary suggestion: {hear} -> {write}");
+                }
+            };
+
             var jevBase = settings.Data.JevBaseUrl;
             settings.Changed += (_, _) =>
             {
@@ -168,6 +188,8 @@ public sealed class Composition : IAsyncDisposable
                 engine.ReviewWholeDictation = settings.Data.ReviewWholeDictation;
                 engine.JoinDictations = settings.Data.JoinDictations;
                 engine.CleanupSeesScreen = settings.Data.CleanupSeesScreen;
+                if (!settings.Data.LearnFromEdits) edits.Stop();
+                engine.Edits = settings.Data.LearnFromEdits ? edits : null;
                 engine.DuckAudio = settings.Data.DuckOtherAudio;
                 engine.AiCleanup = settings.Data.AiCleanup;
                 engine.IsEnabled = settings.Data.IsEnabled;
@@ -218,7 +240,7 @@ public sealed class Composition : IAsyncDisposable
             };
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available);
+        return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available, suggestions);
     }
 
     /// <summary>

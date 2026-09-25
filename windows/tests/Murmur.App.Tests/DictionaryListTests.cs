@@ -67,4 +67,48 @@ public sealed class DictionaryListTests
         }
         finally { window.Close(); File.Delete(path); }
     }
+
+    [AvaloniaFact]
+    public void Suggestions_from_edits_sit_above_the_list_and_Add_moves_one_into_it()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"acapella-dictionary-{Guid.NewGuid()}.txt");
+        var suggestionsPath = Path.Combine(Path.GetTempPath(), $"acapella-suggestions-{Guid.NewGuid()}.json");
+        File.WriteAllText(path, Body);
+        var file = new DictionaryFile(path);
+        var suggestions = new SuggestionStore(suggestionsPath);
+        var at = DateTimeOffset.Now;
+        suggestions.Offer("Sarif", "serif", "…run Impeccable over the serif headings on the pricing page…", at);
+        suggestions.Offer("Sarif", "serif", null, at);
+        suggestions.Offer("Gev", "Jev", null, at);
+        suggestions.Offer("git pool", "git pull", null, at);   // already in the dictionary
+
+        var view = new DictionaryView(file, suggestions);
+        var window = new MainWindow { Width = 1080, Height = 780 };
+        try
+        {
+            window.Show();
+            window.UpdateLayout();
+            var host = window.GetVisualDescendants().OfType<ContentControl>().Single(c => c.GetType() == typeof(ContentControl));
+            host.Content = view;
+            window.UpdateLayout();
+
+            if (Environment.GetEnvironmentVariable("ACAPELLA_VISUAL_DIR") is { } captureDir)
+            {
+                Directory.CreateDirectory(captureDir);
+                using var frame = window.CaptureRenderedFrame();
+                frame?.Save(Path.Combine(captureDir, "dictionary-suggestions.png"));
+            }
+
+            DictionaryView.PendingSuggestions(suggestions, file).ShouldBe(2);
+            var list = (StackPanel)view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel).Content!;
+            list.Children.Count.ShouldBe(2, "the suggestions panel, then the dictionary");
+
+            var add = list.Children[0].GetVisualDescendants().OfType<SgButton>().First(b => Equals(b.Content, "Add"));
+            add.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+
+            file.Entries.ShouldContain(e => e.Hear == "Sarif" && e.Write == "serif");
+            suggestions.Pending.ShouldNotContain(s => s.Hear == "Sarif");
+        }
+        finally { window.Close(); File.Delete(path); File.Delete(suggestionsPath); }
+    }
 }

@@ -974,6 +974,13 @@ public sealed class NavLink : Button
         Template = new FuncControlTemplate<NavLink>((_, _) => _surface);
     }
 
+    /// <summary>The link's text.</summary>
+    public string Text
+    {
+        get => _label.Text ?? string.Empty;
+        set => _label.Text = value;
+    }
+
     /// <summary>Whether this link is the current section.</summary>
     public bool IsActive
     {

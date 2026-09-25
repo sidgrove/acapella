@@ -286,6 +286,9 @@ public sealed class SettingsView : UserControl
             Panels.SwitchRow("Keep recordings for accuracy testing",
                 "Saves the last month's audio on this PC, so changes to the speech model or the clean-up can be tested on your own voice. Nothing is uploaded.",
                 _settings.Data.KeepRecordings, v => Save(_settings.Data with { KeepRecordings = v })),
+            Panels.SwitchRow("Learn from my edits",
+                "For two minutes after typing, or until you send it or move away, reads the box back to see which words you changed. The changes are kept in the history to measure accuracy, and a word you fix to something that sounds like it is suggested for the dictionary. Nothing is uploaded.",
+                _settings.Data.LearnFromEdits, v => Save(_settings.Data with { LearnFromEdits = v })),
             // The trailing full stop is chosen once, in Writing. A second switch here wrote
             // a legacy flag the engine no longer read, and the two silently disagreed.
             Panels.SwitchRow("Mute other audio while I talk", "Mutes other apps on the current output while recording, then restores their previous mute state. Volume levels stay unchanged.", _settings.Data.DuckOtherAudio, v => Save(_settings.Data with { DuckOtherAudio = v })));

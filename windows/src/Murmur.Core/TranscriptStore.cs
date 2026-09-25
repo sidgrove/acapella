@@ -40,6 +40,15 @@ public sealed record TranscriptRecord
 
     /// <summary>What the local model heard, kept beside a cloud transcript for comparison.</summary>
     public string? LocalRawText { get; init; }
+
+    /// <summary>
+    /// Whether the field was read back after typing, so <see cref="EditedText"/> being null
+    /// means the user left the words alone rather than that nobody looked.
+    /// </summary>
+    public bool EditChecked { get; init; }
+
+    /// <summary>The words as the user left them in the field, when they changed any. The truest record of what should have been typed.</summary>
+    public string? EditedText { get; init; }
 }
 
 /// <summary>
@@ -140,6 +149,33 @@ public sealed class TranscriptStore
         }
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// Replaces the newest record that <paramref name="match"/> picks with what
+    /// <paramref name="change"/> makes of it. False when none matched.
+    /// </summary>
+    /// <remarks>
+    /// Raises <see cref="Updated"/>, not <see cref="Changed"/>: the list on screen does not
+    /// show what this touches, and rebuilding every card a minute after each dictation would
+    /// be the slow history refresh of 18/09 all over again.
+    /// </remarks>
+    public bool Update(Func<TranscriptRecord, bool> match, Func<TranscriptRecord, TranscriptRecord> change)
+    {
+        lock (_lock)
+        {
+            var index = Array.FindIndex(_records, r => match(r));
+            if (index < 0) return false;
+            var records = (TranscriptRecord[])_records.Clone();
+            records[index] = change(records[index]);
+            _records = records;
+            Rewrite();
+        }
+        Updated?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    /// <summary>Raised when a record changes in place, for fields the list does not show.</summary>
+    public event EventHandler? Updated;
 
     /// <summary>Deletes one record.</summary>
     public void Remove(Guid id)

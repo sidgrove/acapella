@@ -74,6 +74,15 @@ public sealed class MainWindow : ShellWindow
         _dictionaryLink = new NavLink("Dictionary");
         _transcriptionsLink.Click += (_, _) => ShowSection(transcriptions: true);
         _dictionaryLink.Click += (_, _) => ShowSection(transcriptions: false);
+        if (_composition is { } suggested)
+        {
+            // The count is how the user finds out there is something to look at; nothing
+            // pops up over their work to say so.
+            void Count() => _dictionaryLink.Text = DictionaryView.PendingSuggestions(suggested.Suggestions, suggested.Dictionary) is var n and > 0 ? $"Dictionary ({n})" : "Dictionary";
+            suggested.Suggestions.Changed += (_, _) => Dispatcher.UIThread.Post(Count);
+            suggested.Dictionary.Changed += (_, _) => Dispatcher.UIThread.Post(Count);
+            Count();
+        }
 
         _faultText = Text.Body(string.Empty);
         _faultText.Foreground = Tokens.Brushes.Rose;
@@ -318,7 +327,7 @@ public sealed class MainWindow : ShellWindow
         }
         else
         {
-            _dictionaryView ??= new DictionaryView(_composition.Dictionary);
+            _dictionaryView ??= new DictionaryView(_composition.Dictionary, _composition.Suggestions);
             _sectionHost.Content = _dictionaryView;
         }
     }

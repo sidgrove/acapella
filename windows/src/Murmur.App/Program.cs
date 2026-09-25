@@ -26,6 +26,10 @@ public static class Program
             return SelfTest.Run();
         }
 
+        // Read-only over the history, so safe beside a running copy: --report, and --compare,
+        // which spends nothing without --yes.
+        if (QualityCommands.TryRun(args) is { } exit) return exit;
+
         // Launched by a packaged app such as Codex, every write to app data would land in
         // that app's private cache. Hand over to a clean copy before claiming the instance.
         if (OperatingSystem.IsWindows() && PackageRedirect.RelaunchedOutsidePackage()) return 0;

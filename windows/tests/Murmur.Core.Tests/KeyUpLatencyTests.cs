@@ -61,4 +61,31 @@ public sealed class KeyUpLatencyTests
             transcriber.ReleasePreview.TrySetResult();
         }
     }
+
+    [Fact]
+    public async Task With_the_cloud_on_a_frozen_piece_is_never_just_the_silence_before_the_first_word()
+    {
+        // Two seconds of nothing, then twelve of speech: the quietest point anywhere in the
+        // search is that silence, and on 25/09/2026 a 0.3 s piece was frozen from it.
+        var samples = new float[14 * AudioChunk.SampleRate];
+        var noise = FakeAudioCapture.Noise(12).Samples.Span;
+        noise.CopyTo(samples.AsSpan(2 * AudioChunk.SampleRate));
+        var capture = new FakeAudioCapture(samples);
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("words");
+        await transcriber.LoadAsync(CancellationToken.None);
+
+        await using var engine = new DictationEngine(capture, hotkey, transcriber, new RecordingTextInjector(), () => [])
+        {
+            CloudTranscriber = new FakeStreamingTranscriber("the cloud words"),
+        };
+        hotkey.Press();
+        await Wait.UntilAsync(() => capture.Delivered);
+        (await Wait.UntilAsync(() => transcriber.SegmentLengths.Count >= 2)).ShouldBeTrue();
+        hotkey.Release();
+        await Wait.UntilAsync(() => engine.State == DictationState.Idle);
+
+        var window = (int)(DictationEngine.CloudPreviewWindow.TotalSeconds * AudioChunk.SampleRate);
+        transcriber.SegmentLengths[0].ShouldBeGreaterThanOrEqualTo(window / 4);
+    }
 }

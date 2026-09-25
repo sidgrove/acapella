@@ -19,14 +19,16 @@ namespace Murmur.App.Views;
 public sealed class DictionaryView : UserControl
 {
     private readonly DictionaryFile _file;
+    private readonly SuggestionStore? _suggestions;
     private readonly TextBox _search;
     private readonly StackPanel _list;
     private readonly TextBlock _count;
 
-    /// <summary>Builds the view over <paramref name="file"/>.</summary>
-    public DictionaryView(DictionaryFile file)
+    /// <summary>Builds the view over <paramref name="file"/>, with <paramref name="suggestions"/> from the user's edits shown above it.</summary>
+    public DictionaryView(DictionaryFile file, SuggestionStore? suggestions = null)
     {
         _file = file;
+        _suggestions = suggestions;
 
         _search = Field.Search("Search dictionary");
         _search.TextChanged += (_, _) => Refresh();
@@ -52,8 +54,16 @@ public sealed class DictionaryView : UserControl
         };
 
         _file.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(Refresh);
+        if (_suggestions is not null) _suggestions.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(Refresh);
         Refresh();
     }
+
+    /// <summary>Suggestions still waiting, leaving out any the dictionary has since gained by another route.</summary>
+    public static IReadOnlyList<DictionarySuggestion> Pending(SuggestionStore suggestions, DictionaryFile file) =>
+        [.. suggestions.Pending.Where(s => !file.Entries.Any(e => e.Kind == EntryKind.Correction && string.Equals(e.Hear.Trim(), s.Hear, StringComparison.OrdinalIgnoreCase)))];
+
+    /// <summary>How many suggestions are waiting, for the tab's label.</summary>
+    public static int PendingSuggestions(SuggestionStore suggestions, DictionaryFile file) => Pending(suggestions, file).Count;
 
     private static Control Gutter(Control control)
     {
@@ -82,6 +92,7 @@ public sealed class DictionaryView : UserControl
             .ToList();
 
         _list.Children.Clear();
+        if (BuildSuggestions() is { } suggested) _list.Children.Add(suggested);
         var words = _file.Entries.Count(e => e.Kind == EntryKind.Term);
         var fixes = _file.Entries.Count - words;
         _count.Text = $"{words} {(words == 1 ? "word" : "words")}, {fixes} {(fixes == 1 ? "correction" : "corrections")}  ·  edit the file by hand if you like";
@@ -109,6 +120,56 @@ public sealed class DictionaryView : UserControl
         panel.BorderBrush = Tokens.Brushes.Line;
         panel.BoxShadow = Tokens.Shadow.Soft;
         _list.Children.Add(panel);
+    }
+
+    /// <summary>
+    /// The fixes the user made by hand, offered as corrections, above the dictionary itself.
+    /// Hidden while searching, so a search shows only what is already there.
+    /// </summary>
+    private Border? BuildSuggestions()
+    {
+        if (_suggestions is not { } store || !string.IsNullOrWhiteSpace(_search.Text)) return null;
+        var pending = Pending(store, _file);
+        if (pending.Count == 0) return null;
+
+        var heading = Panels.Column(Tokens.Space.Hair,
+            Text.BodyStrong("Suggested from your edits"),
+            Text.Muted("You fixed these by hand after they were typed. Add one and it's fixed for you next time."));
+        heading.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Snug, Tokens.Space.Base, Tokens.Space.Snug);
+
+        var rows = new StackPanel { Children = { heading } };
+        foreach (var suggestion in pending)
+        {
+            rows.Children.Add(new Border { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) });
+
+            var detail = suggestion.Count > 1 ? $"fixed {suggestion.Count} times" : "fixed once";
+            if (suggestion.Example is { Length: > 0 } example) detail = $"“{example}”  ·  {detail}";
+            var left = Panels.Column(Tokens.Space.Hair,
+                Panels.Row(Tokens.Space.Snug, Text.Muted(suggestion.Hear), Text.Caption("→"), Text.BodyStrong(suggestion.Write)),
+                Text.Caption(detail));
+
+            var dismiss = new SgButton("Not this", SgButton.Kind.Quiet, compact: true);
+            dismiss.Click += (_, _) => store.Dismiss(suggestion.Id);
+            var add = new SgButton("Add", SgButton.Kind.Primary, compact: true);
+            add.Click += (_, _) =>
+            {
+                _file.Add(DictionaryEntry.Correction(suggestion.Hear, suggestion.Write));
+                store.Remove(suggestion.Id);
+            };
+
+            rows.Children.Add(new Border
+            {
+                Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
+                Child = Panels.Split(left, Panels.Row(Tokens.Space.Snug, dismiss, add)),
+            });
+        }
+
+        var panel = Card.Standard(rows, Tokens.Space.Snug);
+        panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
+        panel.BorderBrush = Tokens.Brushes.PillBorder;
+        panel.BoxShadow = Tokens.Shadow.Soft;
+        panel.Margin = new Thickness(0, 0, 0, Tokens.Space.Base);
+        return panel;
     }
 
     private Border BuildRow(DictionaryEntry entry)

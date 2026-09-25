@@ -336,6 +336,12 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <summary>How much text before the caret is read at key-down when the clean-up sees the screen.</summary>
     public const int ScreenReadLength = 1000;
 
+    /// <summary>
+    /// Reads the field back after typing to see what the user changed, or null to not look.
+    /// Stopped at every key-down so it never reads while a recording's own caret read runs.
+    /// </summary>
+    public EditWatcher? Edits { get; set; }
+
     /// <summary>How long the clean-up waits for a screen read that has not finished. Normally it is long done.</summary>
     private static readonly TimeSpan ScreenGrace = TimeSpan.FromMilliseconds(20);
 
@@ -648,6 +654,10 @@ public sealed class DictationEngine : IAsyncDisposable
             // once its transcription (or its cancellation) has finished with the token.
             session = new Session { StartedAt = _clock.Now };
 
+            // Whatever the user did to the last dictation is settled by now, and the field
+            // is about to be read for this one.
+            Edits?.Stop();
+
             // First thing at key-down, on a pool thread, so an app that answers slowly
             // cannot hold the recording. Nothing waits for it before delivery.
             var screen = CleanupSeesScreen && AiCleanup && Cleaner is not null;
@@ -944,7 +954,11 @@ public sealed class DictationEngine : IAsyncDisposable
                     if (session.Buffer.Count - committedSamples > windowSamples)
                     {
                         var idealCut = session.Buffer.Count - (windowSamples / 2);
-                        var cut = AudioSegmenter.QuietestPoint(span, idealCut - (AudioSegmenter.SilenceSearchSeconds * AudioChunk.SampleRate), idealCut);
+                        // Never nearer the last cut than a quarter of the window. With the
+                        // cloud's 10 s window the 8 s search otherwise reached back into the
+                        // silence before the first word and froze 0.3 s (25/09/2026).
+                        var searchFrom = Math.Max(idealCut - (AudioSegmenter.SilenceSearchSeconds * AudioChunk.SampleRate), committedSamples + (windowSamples / 4));
+                        var cut = AudioSegmenter.QuietestPoint(span, searchFrom, idealCut);
                         if (cut > committedSamples)
                         {
                             toCommit = span[committedSamples..cut].ToArray();
@@ -1551,6 +1565,9 @@ public sealed class DictationEngine : IAsyncDisposable
                    + (prefix.Length == 0 ? string.Empty : $"; joined to the last dictation with \"{prefix}\"")
                    + caretNote);
             _lastDelivery = delivered ? new TypedDelivery(typed, stopDropped, target, _hotkey.UserKeyPresses, _clock.Now, send) : null;
+
+            // A spoken send empties the field straight away; there is nothing to watch.
+            if (delivered && !send) Edits?.Watch(releasedAt, typed, target);
         }
 
         Completed?.Invoke(this, result);
@@ -1691,6 +1708,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _hotkey.Released -= OnReleased;
         _hotkey.CancelPressed -= OnCancelPressed;
         _hotkey.Dispose();
+        Edits?.Stop();
 
         // Read under the gate: EndAsync flips the state to Transcribing and only then, still
         // holding the gate, queues the transcription on _finishChain. Read outside it, a

@@ -97,6 +97,9 @@ public sealed record DictionaryWarning(string Message)
 
     private static readonly char[] PhraseSeparators = [' ', '-', '\t'];
 
+    /// <summary>Whether <paramref name="word"/> is one of the ordinary words that would fire constantly as a whole trigger.</summary>
+    public static bool IsOrdinaryWord(string word) => Common.Contains(word.Trim());
+
     /// <summary>Checks an entry for patterns likely to fire on unintended text.</summary>
     /// <param name="entry">The entry to inspect.</param>
     /// <returns>Warnings to show the user, or empty if the entry looks safe.</returns>
