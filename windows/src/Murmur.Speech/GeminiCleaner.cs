@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Murmur.Abstractions;
 
 namespace Murmur.Speech;
@@ -29,7 +30,7 @@ namespace Murmur.Speech;
 /// types the local text. The user never loses a dictation to the cloud being down.
 /// </para>
 /// </remarks>
-public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
+public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
 {
     /// <summary>The model used unless settings say otherwise.</summary>
     public const string DefaultModel = "gemini-2.5-flash";
@@ -50,7 +51,9 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         - Remove false starts, stutters and immediately repeated words ("the the" becomes "the").
         - Apply spoken edits: "scratch that", "delete that", "no wait", "actually no" remove the clause just before them, but only when they are addressed to you and not part of an instruction to someone else ("delete that file" stays).
         - Apply spoken formatting: "new line" / "new paragraph" become line breaks; "bullet points" or "number one, number two" become a list; "full stop", "comma", "question mark" become that punctuation. "Period" is always a word (a span of time, an accounting, VAT or pay period), never a full stop.
-        - Fix punctuation and capitalisation. Use British English spelling.
+        - Fix punctuation and capitalisation. Use British English spelling. Punctuate for someone reading, not for where the speaker paused: a pause, a breath or a dropped filler is not a comma.
+        - Use commas sparingly. No comma after a short opener that runs straight into the sentence ("So it needs to be", "And also maybe", "Also I found"); keep one only where the opener stands apart as a reply or an aside ("Yeah, that's fine", "Honestly, it might be"). No comma before a short "so", "but", "because" or "which" that carries straight on. Never leave a comma where a filler was removed.
+        - Where one complete thought ends and another starts, end the sentence with a full stop, or use a semicolon when the two belong together. Never join two complete sentences with only a comma. Longer, flowing sentences come from the speaker's own joining words and from semicolons, not from commas between sentences.
         - Fix a mishearing when the context makes the intended word certain, and whenever a sound-alike of a word in the speaker's own word list, if one is given below, was clearly what was meant.
         - Write spoken numbers as figures where a person typing would: "five thirty" is 5:30, "twelve pounds fifty" is £12.50, "twenty percent" is 20%, "two thousand and twenty six" is 2026. Small counts in prose stay as words ("two of us").
         - Apply self-corrections. When the speaker says "no", "wait", "actually", "sorry", "I mean", "scratch that" or "never mind" and then restates the same thing differently, keep only the restatement: "buy milk no wait buy water" becomes "Buy water". Several in one dictation are all applied. When nothing is restated, the words are part of what they are saying and stay: "Yeah, no, sorry, it was the other account" keeps "Yeah, no, sorry".
@@ -72,8 +75,12 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         Input: one two one two
         Output: One, two, one, two
         Input: okay I think that's fine let's go with it new line thanks Dave
-        Output: Okay, I think that's fine, let's go with it.
+        Output: Okay, I think that's fine; let's go with it.
         Thanks Dave
+        Input: so I went through the accruals yesterday they all look fine I think we can close the month
+        Output: So I went through the accruals yesterday. They all look fine; I think we can close the month
+        Input: also um when I go on that page my mouse is a bit like laggy but it's fine on the others
+        Output: Also when I go on that page my mouse is a bit laggy but it's fine on the others
         Input: I'm not sure about that honestly it might be a no go for me
         Output: I'm not sure about that. Honestly, it might be a no-go for me
         Input: what's the VAT period reference for like the March quarter
@@ -222,6 +229,23 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         _ => string.Empty,
     };
 
+    /// <summary>
+    /// The recogniser's commas taken out, so the model punctuates the words itself. Commas
+    /// inside numbers ("1,000") stay. Public so the evaluation can send the same text.
+    /// </summary>
+    /// <remarks>
+    /// Both recognisers put a comma at every pause, and with thinking off the model keeps
+    /// punctuation it is given: on 25/09/2026, 90% of the commas typed in the day's dictations
+    /// were the cloud reading's own. Re-cleaning the last 50 long dictations with these removed
+    /// took them from 7.6 to 4.4 per 100 words, commas after "So", "Also" and the like from 15
+    /// to 2, with the same words and the same number of sentences. A spoken "comma" reaches
+    /// here as the word, so it is not lost.
+    /// </remarks>
+    public static string WithoutPauseCommas(string text) => PauseComma().Replace(text, string.Empty);
+
+    [GeneratedRegex(@"(?<!\d),|,(?!\d)", RegexOptions.CultureInvariant)]
+    private static partial Regex PauseComma();
+
     private static string Shorten(string text, int max, bool fromEnd) =>
         text.Length <= max ? text : fromEnd ? "…" + text[^max..] : text[..max] + "…";
 
@@ -267,7 +291,7 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
             input.Append("This part was cut from a longer dictation at a pause and may stop mid-sentence; more follows. ")
                  .Append("Do not end it with a full stop unless the words finish a sentence.\n");
         }
-        input.Append(alternative is null ? text : TwoReadings(text, alternative));
+        input.Append(alternative is null ? WithoutPauseCommas(text) : TwoReadings(WithoutPauseCommas(text), WithoutPauseCommas(alternative)));
 
         var request = new GenerateRequest(
             SystemInstruction: new Content([new Part(Prompt(_customInstructions(), _vocabulary()))]),

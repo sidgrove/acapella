@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using System.Text.Json;
 using Murmur.Abstractions;
@@ -125,6 +125,38 @@ public sealed class GeminiCleanerTests
 
         (await cleaner.CleanAsync("hello there", CancellationToken.None)).ShouldBeNull();
         cleaner.LastError.ShouldBe("no API key");
+    }
+
+    [Fact]
+    public async Task The_recognisers_pause_commas_are_not_sent_but_number_commas_are()
+    {
+        var server = new FakeGemini(reply: "x");
+        using var cleaner = Build(server);
+
+        await cleaner.CleanTwoReadingsAsync("So, it is, like, 1,500 pounds, yeah.", "So it is like 1,500 pounds, yeah.", CancellationToken.None);
+
+        server.LastBody.ShouldContain("So it is like 1,500 pounds yeah.");
+        server.LastBody.ShouldNotContain("So, it is");
+        server.LastBody.ShouldNotContain("pounds,");
+    }
+
+    [Fact]
+    public async Task Earlier_cleaned_text_keeps_its_commas()
+    {
+        var server = new FakeGemini(reply: "x");
+        using var cleaner = Build(server);
+
+        await cleaner.CleanAsync("and then, the tail", "Yeah, that is fine", CancellationToken.None);
+
+        server.LastBody.ShouldContain("Yeah, that is fine");
+        server.LastBody.ShouldContain("and then the tail");
+    }
+
+    [Fact]
+    public void The_prompt_asks_for_light_commas_and_no_comma_splices()
+    {
+        GeminiCleaner.Instructions.ShouldContain("Never join two complete sentences with only a comma");
+        GeminiCleaner.Instructions.ShouldNotContain("I think that's fine, let's go with it");
     }
 
     [Fact]
