@@ -182,6 +182,9 @@ public sealed class DictationEngine : IAsyncDisposable
         /// </summary>
         public Task<string?>? CaretContext;
 
+        /// <summary>The foreground app and window title when the key went down, or null.</summary>
+        public Task<FocusedWindow?>? Window;
+
         /// <summary>The cloud transcription fed while the key is held, or null.</summary>
         public IStreamingTranscription? Cloud;
 
@@ -323,6 +326,18 @@ public sealed class DictationEngine : IAsyncDisposable
     /// talking, and only collected at delivery.
     /// </summary>
     public bool MatchCaseToCaret { get; set; } = true;
+
+    /// <summary>
+    /// Whether the AI clean-up is shown the app, its window title and the text before the
+    /// caret, so names already on screen are spelt the same way. All read at key-down.
+    /// </summary>
+    public bool CleanupSeesScreen { get; set; } = true;
+
+    /// <summary>How much text before the caret is read at key-down when the clean-up sees the screen.</summary>
+    public const int ScreenReadLength = 1000;
+
+    /// <summary>How long the clean-up waits for a screen read that has not finished. Normally it is long done.</summary>
+    private static readonly TimeSpan ScreenGrace = TimeSpan.FromMilliseconds(20);
 
     /// <summary>
     /// How long the AI tier is given after the key-up, over everything it still has to do,
@@ -635,11 +650,16 @@ public sealed class DictationEngine : IAsyncDisposable
 
             // First thing at key-down, on a pool thread, so an app that answers slowly
             // cannot hold the recording. Nothing waits for it before delivery.
-            if ((MatchCaseToCaret || JoinDictations) && InjectText)
+            var screen = CleanupSeesScreen && AiCleanup && Cleaner is not null;
+            if ((MatchCaseToCaret || JoinDictations || screen) && InjectText)
             {
                 var injector = _injector;
                 var stop = session.Stop.Token;
-                session.CaretContext = Task.Run(() => injector.ReadTextBeforeCaretAsync(CaretCase.ContextLength, stop), CancellationToken.None);
+                // One read serves the capital, the join and the clean-up; the first two only
+                // look at its last few characters.
+                var length = screen ? ScreenReadLength : CaretCase.ContextLength;
+                session.CaretContext = Task.Run(() => injector.ReadTextBeforeCaretAsync(length, stop), CancellationToken.None);
+                if (screen) session.Window = Task.Run(() => injector.ForegroundWindow, CancellationToken.None);
             }
 
             // Opened now so the socket and setup, about half a second, overlap the first words.
@@ -1433,10 +1453,13 @@ public sealed class DictationEngine : IAsyncDisposable
                 // ones, or a local model that heard nothing, leave only the one.
                 var alternative = localReading is null ? null : ForCleaner(new DictionaryCorrector(entries).Apply(localReading).Text);
                 var twoReadings = alternative is { Length: > 0 } && !SameWords(alternative, forCleaner);
+                var screen = CleanupSeesScreen ? await ScreenAsync(session).ConfigureAwait(false) : null;
                 var cleaned = await CleanWithinBudgetAsync(
-                    () => twoReadings ? cleaner.CleanTwoReadingsAsync(forCleaner, alternative!, budget.Token) : cleaner.CleanAsync(forCleaner, budget.Token),
+                    () => twoReadings ? cleaner.CleanTwoReadingsAsync(forCleaner, alternative!, screen, budget.Token) : cleaner.CleanWithScreenAsync(forCleaner, screen, budget.Token),
                     budget.Token).ConfigureAwait(false);
                 if (twoReadings) note = "chose between the cloud and local readings";
+                if (screen is not null) note = (note is null ? string.Empty : note + "; ")
+                    + $"saw {screen.Window?.App ?? "an unknown app"}{(screen.BeforeCaret is { Length: > 0 } before ? $" and {before.Length} chars before the caret" : string.Empty)}";
                 if (cleaned is not null && !CleanupGuard.IsPlausible(forCleaner, cleaned))
                 {
                     // The model summarised or padded. Wispr-grade means never doing that to
@@ -1547,6 +1570,27 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>How long delivery will wait for a caret read that has not finished. Normally it is long done.</summary>
     private static readonly TimeSpan CaretGrace = TimeSpan.FromMilliseconds(40);
+
+    /// <summary>
+    /// What the key-down reads found on screen, for the clean-up. Reads still running after a
+    /// short grace are left out rather than waited for: they are a nicety, the wait is not.
+    /// </summary>
+    private static async Task<ScreenContext?> ScreenAsync(Session session)
+    {
+        Task[] reads = [.. new Task?[] { session.CaretContext, session.Window }.OfType<Task>()];
+        if (reads.Length == 0) return null;
+
+        if (reads.Any(r => !r.IsCompleted))
+        {
+            try { await Task.WhenAny(Task.WhenAll(reads), Task.Delay(ScreenGrace)).ConfigureAwait(false); }
+            catch (Exception e) { Log.Warn($"screen read failed: {e.Message}"); }
+        }
+
+        var before = session.CaretContext is { IsCompletedSuccessfully: true } caret ? caret.Result : null;
+        var window = session.Window is { IsCompletedSuccessfully: true } focused ? focused.Result : null;
+        var screen = new ScreenContext(window, before);
+        return screen.IsEmpty ? null : screen;
+    }
 
     /// <summary>
     /// <paramref name="text"/> with the capital taken off if the caret was mid-sentence when

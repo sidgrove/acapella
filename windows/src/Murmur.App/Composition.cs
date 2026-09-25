@@ -139,6 +139,7 @@ public sealed class Composition : IAsyncDisposable
                 BritishSpelling = settings.Data.BritishSpelling,
                 ReviewWholeDictation = settings.Data.ReviewWholeDictation,
                 JoinDictations = settings.Data.JoinDictations,
+                CleanupSeesScreen = settings.Data.CleanupSeesScreen,
                 Ducker = PlatformFactory.CreateAudioDucker(),
                 DuckAudio = settings.Data.DuckOtherAudio,
                 AiCleanup = settings.Data.AiCleanup,
@@ -166,6 +167,7 @@ public sealed class Composition : IAsyncDisposable
                 engine.BritishSpelling = settings.Data.BritishSpelling;
                 engine.ReviewWholeDictation = settings.Data.ReviewWholeDictation;
                 engine.JoinDictations = settings.Data.JoinDictations;
+                engine.CleanupSeesScreen = settings.Data.CleanupSeesScreen;
                 engine.DuckAudio = settings.Data.DuckOtherAudio;
                 engine.AiCleanup = settings.Data.AiCleanup;
                 engine.IsEnabled = settings.Data.IsEnabled;

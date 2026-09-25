@@ -18,7 +18,8 @@ namespace Murmur.Platform.Windows;
 /// </para>
 /// <para>
 /// One read runs at a time. An app that stops answering leaves its call parked on a pool
-/// thread, and every later dictation would park another; while one is stuck they return null.
+/// thread, and every later dictation would park another; while one is stuck they wait 100 ms
+/// and return null.
 /// </para>
 /// </remarks>
 internal static class UiaCaretReader
@@ -46,10 +47,55 @@ internal static class UiaCaretReader
         finally { Marshal.Release(pointer); }
     }
 
+    /// <summary>
+    /// Takes the one-read-at-a-time slot. A read already running is normally a few
+    /// milliseconds from done, and the key-down read must not come back empty just because
+    /// the edit watcher happened to be mid-read; a stuck app still costs only this wait.
+    /// </summary>
+    private static bool Enter()
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) == 0) return true;
+            Thread.Sleep(5);
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The text from <paramref name="before"/> characters before the caret to
+    /// <paramref name="after"/> characters after it, or null.
+    /// </summary>
+    public static string? ReadAround(int before, int after)
+    {
+        if (!Enter()) return null;
+        try
+        {
+            var focused = Automation.Value.GetFocusedElement();
+            if (focused.GetCurrentPattern(TextPatternId) is not IUIAutomationTextPattern pattern) return null;
+
+            var selection = pattern.GetSelection();
+            if (selection.Length == 0) return null;
+
+            var range = selection.GetElement(0).Clone();
+            range.MoveEndpointByUnit(EndpointStart, UnitCharacter, -before);
+            range.MoveEndpointByUnit(EndpointEnd, UnitCharacter, after);
+            return range.GetText(-1);
+        }
+        catch (Exception e) when (e is COMException or InvalidCastException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
+        finally
+        {
+            Volatile.Write(ref _busy, 0);
+        }
+    }
+
     /// <summary>The text before the caret, at most <paramref name="maxLength"/> characters, or null.</summary>
     public static string? Read(int maxLength)
     {
-        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return null;
+        if (!Enter()) return null;
         try
         {
             var focused = Automation.Value.GetFocusedElement();

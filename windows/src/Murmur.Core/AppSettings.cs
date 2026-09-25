@@ -165,6 +165,18 @@ public sealed record SettingsData
     /// </summary>
     public bool JoinDictations { get; set; } = true;
 
+    /// <summary>
+    /// Show the AI clean-up the app, window title and text before the caret, so names on
+    /// screen are spelt the same way.
+    /// </summary>
+    public bool CleanupSeesScreen { get; set; } = true;
+
+    /// <summary>
+    /// After typing, watch the field for a couple of minutes to see what the user changed:
+    /// the result is kept in the history and sound-alike fixes become dictionary suggestions.
+    /// </summary>
+    public bool LearnFromEdits { get; set; } = true;
+
     /// <summary>The user's own rules for the AI clean-up, appended to the prompt. Null for none.</summary>
     public string? CustomInstructions { get; set; }
 

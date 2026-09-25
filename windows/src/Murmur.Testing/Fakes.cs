@@ -274,6 +274,24 @@ public sealed class RecordingTextInjector : ITextInjector
         if (CaretDelay > TimeSpan.Zero) await Task.Delay(CaretDelay, cancellationToken).ConfigureAwait(false);
         return CaretText;
     }
+
+    /// <summary>What a test says is either side of the caret. Null, as for an app that cannot say, by default.</summary>
+    public string? AroundCaretText { get; set; }
+
+    /// <summary>How many times the text around the caret has been read.</summary>
+    public int AroundCaretReads => Volatile.Read(ref _aroundCaretReads);
+
+    private int _aroundCaretReads;
+
+    /// <inheritdoc />
+    public Task<string?> ReadTextAroundCaretAsync(int before, int after, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _aroundCaretReads);
+        return Task.FromResult(AroundCaretText);
+    }
+
+    /// <summary>The window a test says is in front. Null, as for a platform that cannot tell, by default.</summary>
+    public FocusedWindow? ForegroundWindow { get; set; }
 }
 
 /// <summary>A startup registration that only remembers.</summary>

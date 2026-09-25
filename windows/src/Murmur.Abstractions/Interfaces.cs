@@ -197,6 +197,36 @@ public interface ITextInjector
     /// <param name="maxLength">The most characters wanted.</param>
     /// <param name="cancellationToken">Cancelled when the answer is no longer wanted.</param>
     Task<string?> ReadTextBeforeCaretAsync(int maxLength, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
+
+    /// <summary>
+    /// The text either side of the caret in the focused control, joined, or null where the
+    /// platform or the control cannot say. Used after delivery to see what the user made of
+    /// the words, so it must see past the caret: a word fixed mid-sentence leaves it there.
+    /// </summary>
+    /// <param name="before">The most characters wanted before the caret.</param>
+    /// <param name="after">The most characters wanted after it.</param>
+    /// <param name="cancellationToken">Cancelled when the answer is no longer wanted.</param>
+    Task<string?> ReadTextAroundCaretAsync(int before, int after, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
+
+    /// <summary>The foreground app's name and window title, or null where the platform cannot say.</summary>
+    FocusedWindow? ForegroundWindow => null;
+}
+
+/// <summary>The app that has focus and the title of its window.</summary>
+/// <param name="App">A short name for the app, e.g. "OUTLOOK" or "chrome".</param>
+/// <param name="Title">The window title, which often names the document, chat or email.</param>
+public sealed record FocusedWindow(string App, string Title);
+
+/// <summary>
+/// What was on screen where a dictation will be typed, given to the clean-up so a name the
+/// screen already spells is spelt the same way.
+/// </summary>
+/// <param name="Window">The app and its window title, or null.</param>
+/// <param name="BeforeCaret">The text just before the caret, or null.</param>
+public sealed record ScreenContext(FocusedWindow? Window, string? BeforeCaret)
+{
+    /// <summary>Whether there is anything to show.</summary>
+    public bool IsEmpty => Window is null && string.IsNullOrWhiteSpace(BeforeCaret);
 }
 
 /// <summary>Turns audio into text.</summary>
@@ -396,6 +426,19 @@ public interface ITranscriptCleaner
     /// ordinary phrases it forced into the word list ("See if" as "serif").
     /// </remarks>
     Task<string?> CleanTwoReadingsAsync(string cloud, string local, CancellationToken cancellationToken) => CleanAsync(cloud, cancellationToken);
+
+    /// <summary>
+    /// <see cref="CleanAsync(string, CancellationToken)"/>, shown what is on screen where the
+    /// text will be typed, for the spelling of names and terms only.
+    /// </summary>
+    /// <remarks>Not an overload of <c>CleanAsync</c>: a null second argument would not say which.</remarks>
+    Task<string?> CleanWithScreenAsync(string text, ScreenContext? screen, CancellationToken cancellationToken) => CleanAsync(text, cancellationToken);
+
+    /// <summary>
+    /// <see cref="CleanTwoReadingsAsync(string, string, CancellationToken)"/>, shown what is
+    /// on screen where the text will be typed, for the spelling of names and terms only.
+    /// </summary>
+    Task<string?> CleanTwoReadingsAsync(string cloud, string local, ScreenContext? screen, CancellationToken cancellationToken) => CleanTwoReadingsAsync(cloud, local, cancellationToken);
 
     /// <summary>Why the most recent <see cref="CleanAsync(string, CancellationToken)"/> returned null, for the log. Null when it succeeded.</summary>
     string? LastError => null;

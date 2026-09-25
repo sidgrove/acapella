@@ -151,6 +151,12 @@ public sealed class SendInputTextInjector : ITextInjector
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")]
+    private static extern uint GetWindowProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr window, char[] text, int maxCount);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
 
@@ -187,6 +193,39 @@ public sealed class SendInputTextInjector : ITextInjector
     /// <inheritdoc />
     public Task<string?> ReadTextBeforeCaretAsync(int maxLength, CancellationToken cancellationToken) =>
         Task.Run(() => UiaCaretReader.Read(maxLength), cancellationToken);
+
+    /// <inheritdoc />
+    public Task<string?> ReadTextAroundCaretAsync(int before, int after, CancellationToken cancellationToken) =>
+        Task.Run(() => UiaCaretReader.ReadAround(before, after), cancellationToken);
+
+    /// <inheritdoc />
+    public FocusedWindow? ForegroundWindow
+    {
+        get
+        {
+            var window = GetForegroundWindow();
+            if (window == IntPtr.Zero) return null;
+
+            var buffer = new char[256];
+            var length = GetWindowText(window, buffer, buffer.Length);
+            var title = length > 0 ? new string(buffer, 0, length) : string.Empty;
+
+            var app = "unknown";
+            try
+            {
+                if (GetWindowProcessId(window, out var processId) != 0 && processId != 0)
+                {
+                    using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+                    app = process.ProcessName;
+                }
+            }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                // Gone, or not ours to look at; the title alone still helps.
+            }
+            return new FocusedWindow(app, title);
+        }
+    }
 
     /// <summary>Called to place text on the clipboard and paste it.</summary>
     /// <remarks>

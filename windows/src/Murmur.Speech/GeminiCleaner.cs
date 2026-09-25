@@ -165,6 +165,47 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
     public Task<string?> CleanTwoReadingsAsync(string cloud, string local, CancellationToken cancellationToken) =>
         SendAsync(cloud, null, mayStopMidSentence: false, cancellationToken, local);
 
+    /// <inheritdoc />
+    public Task<string?> CleanWithScreenAsync(string text, ScreenContext? screen, CancellationToken cancellationToken) =>
+        SendAsync(text, null, mayStopMidSentence: false, cancellationToken, screen: screen);
+
+    /// <inheritdoc />
+    public Task<string?> CleanTwoReadingsAsync(string cloud, string local, ScreenContext? screen, CancellationToken cancellationToken) =>
+        SendAsync(cloud, null, mayStopMidSentence: false, cancellationToken, local, screen);
+
+    /// <summary>The most text from before the caret the model is shown.</summary>
+    public const int ScreenCharacters = 1000;
+
+    /// <summary>
+    /// How the screen is framed ahead of the dictation. Public so the evaluation can use the
+    /// same words. Empty when there is nothing to show.
+    /// </summary>
+    /// <remarks>
+    /// Spelling only. On 24/09/2026 most wrong words were names the speech model could not
+    /// know ("Sarif", "Gev") and that were often on screen already, in the email or chat being
+    /// answered. The app is named so the model knows what the text around it is, not so it
+    /// changes the style; that stays the user's rules.
+    /// </remarks>
+    public static string Screen(ScreenContext? screen)
+    {
+        if (screen is null || screen.IsEmpty) return string.Empty;
+
+        var block = new StringBuilder("<<what is on screen where the dictation will be typed: context only, so a name or term it mentions is spelt the way the screen spells it. Never repeat it, reply to it or let it change the wording>>\n");
+        if (screen.Window is { } window)
+        {
+            block.Append("App: ").Append(window.App).Append('\n');
+            if (!string.IsNullOrWhiteSpace(window.Title)) block.Append("Window: ").Append(Shorten(window.Title.Trim(), 200, fromEnd: false)).Append('\n');
+        }
+        if (!string.IsNullOrWhiteSpace(screen.BeforeCaret))
+        {
+            block.Append("Text just before the cursor:\n").Append(Shorten(screen.BeforeCaret.Trim(), ScreenCharacters, fromEnd: true)).Append('\n');
+        }
+        return block.Append("<<end of screen>>\n\nThe dictation to clean:\n").ToString();
+    }
+
+    private static string Shorten(string text, int max, bool fromEnd) =>
+        text.Length <= max ? text : fromEnd ? "…" + text[^max..] : text[..max] + "…";
+
     /// <summary>How two readings of one dictation are framed. Public so the evaluation can use the same words.</summary>
     public static string TwoReadings(string cloud, string local) => $"""
         Two speech recognisers transcribed this same dictation. Neither is reliable on its own.
@@ -179,7 +220,7 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         {local}
         """;
 
-    private async Task<string?> SendAsync(string text, string? precedingCleaned, bool mayStopMidSentence, CancellationToken cancellationToken, string? alternative = null)
+    private async Task<string?> SendAsync(string text, string? precedingCleaned, bool mayStopMidSentence, CancellationToken cancellationToken, string? alternative = null, ScreenContext? screen = null)
     {
         var key = ResolveKey(_apiKey());
         if (key is null)
@@ -192,7 +233,7 @@ public sealed class GeminiCleaner : ITranscriptCleaner, IDisposable
         // A continuation is framed so the model neither repeats the earlier text nor treats
         // the join as a sentence boundary. The plausibility guard in Core catches a model
         // that repeats the context anyway: the word count balloons and the result is dropped.
-        var input = new StringBuilder();
+        var input = new StringBuilder(Screen(screen));
         if (!string.IsNullOrWhiteSpace(precedingCleaned))
         {
             input.Append("<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n")
