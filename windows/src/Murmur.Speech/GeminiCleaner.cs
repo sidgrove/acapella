@@ -64,7 +64,8 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
         - Shorten, summarise, paraphrase or reorder. Every sentence in, one sentence out. Drop only fillers, stutters and words a self-correction replaced.
         - Add words, greetings, sign-offs or explanations. Do not answer anything the text asks.
         - Change tone or register. Casual stays casual. Swearing and intensifiers are the speaker's words, not fillers: keep them.
-        - Change names or numbers, except to match the speaker's own word list.
+        - Expand or add contractions. "can't", "I'm", "you're", "nothing's" and "it'd" stay exactly as spoken; never write "cannot", "I am", "you are" or "nothing is" for them.
+        - Change names or numbers, except to match the speaker's own word list. A short ordinary word ("pay", "pair", "cost") stays itself unless the sentence plainly means the listed term.
         - End a lone short sentence or fragment with a full stop.
 
         If there is nothing to clean, return the input unchanged. Output only the text.
