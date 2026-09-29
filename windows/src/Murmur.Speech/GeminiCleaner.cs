@@ -247,6 +247,64 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
     [GeneratedRegex(@"(?<!\d),|,(?!\d)", RegexOptions.CultureInvariant)]
     private static partial Regex PauseComma();
 
+    /// <summary>
+    /// Puts back a contraction the model spelt out: "we are" becomes "we're" again when a
+    /// reading said "we're" and no reading said "we are".
+    /// </summary>
+    /// <remarks>
+    /// On 29/09/2026, with an instruction not to, the model still typed "We are inconsistent",
+    /// "we are sending" and "the client is also" for "We're", "we're" and "client's", and
+    /// earlier "I cannot see" and "nothing is cut off". It reads as someone else's voice, so
+    /// this is enforced here rather than asked for.
+    /// </remarks>
+    public static string KeepContractions(string cleaned, params string?[] readings)
+    {
+        var spoken = string.Join("\n", readings.Where(r => !string.IsNullOrEmpty(r)));
+        if (spoken.Length == 0) return cleaned;
+
+        var restored = cleaned;
+        foreach (var contraction in Contraction().Matches(spoken).Select(m => m.Value.Replace('’', '\'')).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var expanded in Expansions(contraction))
+            {
+                var pattern = new Regex($@"\b{Regex.Escape(expanded)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                if (pattern.IsMatch(spoken) || !pattern.IsMatch(restored)) continue;
+                restored = pattern.Replace(restored, m => char.IsUpper(m.Value[0])
+                    ? char.ToUpperInvariant(contraction[0]) + contraction[1..].ToLowerInvariant()
+                    : contraction.ToLowerInvariant());
+            }
+        }
+        return restored;
+    }
+
+    private static IEnumerable<string> Expansions(string contraction)
+    {
+        var lower = contraction.ToLowerInvariant();
+        var apostrophe = lower.IndexOf('\'');
+        var stem = lower[..apostrophe];
+        var tail = lower[apostrophe..];
+        switch (lower)
+        {
+            case "can't": yield return "cannot"; yield return "can not"; yield break;
+            case "won't": yield return "will not"; yield break;
+            case "shan't": yield return "shall not"; yield break;
+            case "let's": yield break;
+        }
+        switch (tail)
+        {
+            case "'t" when stem.EndsWith('n'): yield return stem[..^1] + " not"; break;
+            case "'re": yield return stem + " are"; break;
+            case "'m": yield return stem + " am"; break;
+            case "'ve": yield return stem + " have"; break;
+            case "'ll": yield return stem + " will"; break;
+            case "'d": yield return stem + " would"; yield return stem + " had"; break;
+            case "'s": yield return stem + " is"; yield return stem + " has"; break;
+        }
+    }
+
+    [GeneratedRegex(@"\b[A-Za-z]+['’](?:t|re|m|ve|ll|d|s)\b", RegexOptions.CultureInvariant)]
+    private static partial Regex Contraction();
+
     private static string Shorten(string text, int max, bool fromEnd) =>
         text.Length <= max ? text : fromEnd ? "…" + text[^max..] : text[..max] + "…";
 
@@ -346,7 +404,7 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
             }
 
             LastError = null;
-            return reply.Trim();
+            return KeepContractions(reply.Trim(), text, alternative);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or UriFormatException or InvalidOperationException or NotSupportedException)
         {
