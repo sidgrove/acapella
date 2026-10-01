@@ -117,6 +117,10 @@ internal static class PlatformFactory
     public static IStartupRegistration? CreateStartupRegistration() =>
         Create<IStartupRegistration>("StartupRegistration", []);
 
+    /// <summary>Reads application icons, or null off Windows.</summary>
+    public static IAppIcons? CreateAppIcons() =>
+        Create<IAppIcons>("AppIcons", []);
+
     /// <summary>Creates the per-session audio ducker, or null off Windows.</summary>
     public static IAudioDucker? CreateAudioDucker() =>
         Create<IAudioDucker>("SessionDucker", []);

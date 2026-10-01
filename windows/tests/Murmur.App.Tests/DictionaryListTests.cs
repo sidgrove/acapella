@@ -51,19 +51,17 @@ public sealed class DictionaryListTests
             list.Children.Count.ShouldBe(1, "every entry belongs in a single panel, not a card each");
             list.Children[0].Bounds.Width.ShouldBeLessThanOrEqualTo(scroll.Viewport.Width);
 
-            var switches = view.GetVisualDescendants().OfType<Murmur.App.Controls.Switch>().ToList();
-            switches.Count.ShouldBe(7);
-            switches.Count(s => s.IsChecked == false).ShouldBe(1);
-
+            // One row per word it writes, sorted as an index, with every way it was heard beside it.
             var written = list.Children[0].GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.FontWeight == Avalonia.Media.FontWeight.Bold)
                 .Select(t => t.Text)
                 .ToList();
-            written.ShouldBe(["accruals", "Anthropic", "Claude Code", "git pull", "git pull", "Sidgrove", "Xero"]);
+            written.ShouldBe(["accruals", "Anthropic", "Claude Code", "git pull", "Sidgrove", "Xero"]);
 
-            view.GetVisualDescendants().OfType<SgButton>()
-                .Where(b => Equals(b.Content, "Delete"))
-                .ShouldAllBe(b => !b.IsVisible, "Delete shows only on the row under the pointer");
+            var heard = list.Children[0].GetVisualDescendants().OfType<Chip>().Select(c => c.Text).ToList();
+            heard.ShouldBe(["cloud code", "get poll", "git pool", "Sid grove", "Off"], "the switched-off entry says so");
+
+            view.GetVisualDescendants().OfType<Murmur.App.Controls.Switch>().ShouldBeEmpty("switching off and deleting happen in the editor, not on eighty rows");
         }
         finally { window.Close(); File.Delete(path); }
     }

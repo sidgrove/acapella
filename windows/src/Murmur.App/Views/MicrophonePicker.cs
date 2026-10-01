@@ -23,11 +23,18 @@ public sealed class MicrophonePicker : ComboBox
         SelectedIndex = choices.FindIndex(c => c.Id == selectedId);
         HorizontalAlignment = HorizontalAlignment.Stretch;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        MinHeight = Tokens.Layout.HeroButtonHeight;
+        // The same height, fill, edge and radius as the text fields beside it.
+        MinHeight = Tokens.Layout.FieldHeight;
         MaxDropDownHeight = Tokens.Layout.DeviceDropdownHeight;
         Background = Tokens.Brushes.Card;
         BorderBrush = Tokens.Brushes.PanelBorder;
-        CornerRadius = new CornerRadius(Tokens.Radius.Inner);
+        CornerRadius = new CornerRadius(Tokens.Radius.Control);
+        // Never the Windows accent blue: the brand's soft ring, and a firmer hairline on hover.
+        Resources["ComboBoxBorderBrushPointerOver"] = Tokens.Brushes.CardBorderStrong;
+        Resources["ComboBoxBorderBrushPressed"] = Tokens.Brushes.FocusBorder;
+        Resources["ComboBoxBorderBrushFocused"] = Tokens.Brushes.FocusBorder;
+        Resources["ComboBoxBackgroundPointerOver"] = Tokens.Brushes.Card;
+        Resources["ComboBoxBackgroundPressed"] = Tokens.Brushes.Card;
         FontFamily = Tokens.Fonts.Sans;
         FontSize = Tokens.Fonts.Base;
         SelectionChanged += (_, _) =>

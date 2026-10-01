@@ -27,14 +27,16 @@ public sealed class HistoryListTests
             window.UpdateLayout();
             var list = view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel).Content as StackPanel;
             list.ShouldNotBeNull();
-            list.Children.Count.ShouldBe(5);
-            var previousTop = list.Children[0];
+            list.Children.Count.ShouldBe(6, "the day's heading, then five cards");
+            var heading = list.Children[0];
+            var previousTop = list.Children[1];
 
             store.Add(new TranscriptRecord { Text = "Dictation 5" });
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-            list.Children.Count.ShouldBe(6);
-            list.Children[1].ShouldBeSameAs(previousTop, "the existing cards are kept, not rebuilt");
+            list.Children.Count.ShouldBe(7);
+            list.Children[0].ShouldBeSameAs(heading, "a dictation on the same day goes under the heading already there");
+            list.Children[2].ShouldBeSameAs(previousTop, "the existing cards are kept, not rebuilt");
         }
         finally { window.Close(); File.Delete(path); }
     }
@@ -54,7 +56,7 @@ public sealed class HistoryListTests
             var list = (StackPanel)view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel).Content!;
             store.Remove(store.Records[0].Id);
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-            list.Children.Count.ShouldBe(2);
+            list.Children.Count.ShouldBe(3, "the heading and the two left");
         }
         finally { window.Close(); File.Delete(path); }
     }

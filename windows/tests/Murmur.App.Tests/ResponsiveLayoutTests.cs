@@ -73,8 +73,8 @@ public sealed class ResponsiveLayoutTests
             scroll.Bounds.Height.ShouldBeGreaterThan(120, "the header must leave room to read history");
             scroll.Offset = new Vector(0, 80);
             window.UpdateLayout();
-            var recent = view.GetVisualDescendants().OfType<Badge>().Single();
-            var headerBottom = recent.TranslatePoint(default, view)!.Value.Y + recent.Bounds.Height;
+            var search = view.GetVisualDescendants().OfType<TextBox>().First();
+            var headerBottom = search.TranslatePoint(default, view)!.Value.Y + search.Bounds.Height;
             var viewportTop = scroll.TranslatePoint(default, view)!.Value.Y;
             (viewportTop - headerBottom).ShouldBeGreaterThanOrEqualTo(12, "the header gap must remain when cards scroll");
             var list = (StackPanel)scroll.Content!;

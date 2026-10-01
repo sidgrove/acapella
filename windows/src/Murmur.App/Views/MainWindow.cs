@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Murmur.Abstractions;
 using Murmur.App.Controls;
@@ -13,21 +15,28 @@ using Murmur.Core;
 namespace Murmur.App.Views;
 
 /// <summary>
-/// The main window, in the site's voice: a hero with a badge, a serif headline and its
-/// italic accent, the one pill button with its coin, and a readout card; then the history
-/// or the dictionary as 20px cards.
+/// The main window: a serif title naming the view with the section switcher beside it, one
+/// status card that says what Acapella is doing and how to start it, then the history, the
+/// dictionary or the settings.
 /// </summary>
+/// <remarks>
+/// Built to the Sidgrove Bible (Sidgrove Intelligence <c>docs/BIBLE.md</c>, 29/09/2026): the
+/// answer first in one calm card, colour carried by small tinted tiles, nothing repeated and
+/// nothing explained that the design should make obvious.
+/// </remarks>
 public sealed class MainWindow : ShellWindow
 {
     private readonly Composition? _composition;
-    private readonly Badge _badge;
-    private readonly TextBlock _subtitle;
+    private readonly TextBlock _title;
+    private readonly IconTile _stateTile;
+    private readonly TextBlock _stateTitle;
     private readonly TextBlock _counter;
+    private readonly Border _shortcut;
     private readonly TextBlock _readoutLabel;
     private readonly LevelBars _bars;
     private readonly NavLink _transcriptionsLink;
     private readonly NavLink _dictionaryLink;
-    private NavLink? _settingsLink;
+    private readonly NavLink _settingsLink;
     private SettingsView? _settingsView;
     private readonly ContentControl _sectionHost;
     private readonly Border _fault;
@@ -43,6 +52,7 @@ public sealed class MainWindow : ShellWindow
     private DateTimeOffset? _startedAt;
     private string _lastState = string.Empty;
     private string _lastPreview = string.Empty;
+    private string _lastHint = string.Empty;
 
     /// <summary>Builds a window with no engine behind it. Used by headless tests.</summary>
     public MainWindow() : this(null) { }
@@ -58,34 +68,51 @@ public sealed class MainWindow : ShellWindow
         Width = Tokens.Layout.MainWidth;
         Height = Tokens.Layout.MainHeight;
 
-        _badge = new Badge("Ready") { IsVisible = false };
-        _subtitle = Text.Muted(string.Empty);
+        _title = new TextBlock
+        {
+            FontFamily = Tokens.Fonts.Serif,
+            FontSize = Tokens.Fonts.Title,
+            LineHeight = Tokens.Fonts.Title * 1.25,
+            LetterSpacing = Tokens.Fonts.TitleTracking,
+            Foreground = Tokens.Brushes.Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
 
-        _counter = Text.Number("00:00", Tokens.Fonts.CaptionTitle, Tokens.Brushes.Muted);
-        _readoutLabel = Text.Eyebrow("Idle");
-        _bars = new LevelBars(Tokens.Layout.BarsCountSmall, Tokens.Layout.BarsHeight) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        _stateTile = new IconTile(Icons.Mic, Tokens.Accent.Brand, Tokens.Layout.TileLead);
+        _stateTitle = Text.Heading("Ready");
+        _stateTitle.TextWrapping = TextWrapping.NoWrap;
+        _stateTitle.VerticalAlignment = VerticalAlignment.Center;
+        _counter = Text.Number("00:00", Tokens.Fonts.Heading, Tokens.Brushes.Muted);
+        _counter.VerticalAlignment = VerticalAlignment.Center;
+        _counter.IsVisible = false;
+        _shortcut = new Border { VerticalAlignment = VerticalAlignment.Center };
+        _readoutLabel = Text.Eyebrow("IDLE");
+        _bars = new LevelBars(Tokens.Layout.BarsCountSmall, Tokens.Layout.BarsHeightSmall) { VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
         _preview = Text.Muted(string.Empty);
-        _preview.TextWrapping = Avalonia.Media.TextWrapping.Wrap;
-        _preview.MaxWidth = Tokens.Layout.OverlayPreviewWidth;
+        _preview.TextWrapping = TextWrapping.Wrap;
         _preview.IsVisible = false;
-
 
         _transcriptionsLink = new NavLink("Transcriptions") { IsActive = true };
         _dictionaryLink = new NavLink("Dictionary");
+        _settingsLink = new NavLink("Settings");
         _transcriptionsLink.Click += (_, _) => ShowSection(transcriptions: true);
         _dictionaryLink.Click += (_, _) => ShowSection(transcriptions: false);
+        _settingsLink.Click += (_, _) => ShowSettings();
+        ToolTip.SetTip(_dictionaryLink, "Fixes you made by hand that are waiting for a yes or a no show here as a count.");
         if (_composition is { } suggested)
         {
             // The count is how the user finds out there is something to look at; nothing
             // pops up over their work to say so.
-            void Count() => _dictionaryLink.Text = DictionaryView.PendingSuggestions(suggested.Suggestions, suggested.Dictionary) is var n and > 0 ? $"Dictionary ({n})" : "Dictionary";
+            void Count() => _dictionaryLink.Count = DictionaryView.PendingSuggestions(suggested.Suggestions, suggested.Dictionary);
             suggested.Suggestions.Changed += (_, _) => Dispatcher.UIThread.Post(Count);
             suggested.Dictionary.Changed += (_, _) => Dispatcher.UIThread.Post(Count);
             Count();
         }
 
         _faultText = Text.Body(string.Empty);
-        _faultText.Foreground = Tokens.Brushes.Rose;
+        _faultText.Foreground = Tokens.Accent.Coral.Ink;
+        _faultText.VerticalAlignment = VerticalAlignment.Center;
         _fault = BuildFault();
 
         _sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
@@ -126,7 +153,7 @@ public sealed class MainWindow : ShellWindow
             {
                 if (result.CleanupFailed && !engine.IsFaultedRecently)
                 {
-                    Dispatcher.UIThread.Post(() => ShowFault("AI clean-up rewrote rather than tidied, so the local text was typed. Both are in the history."));
+                    Dispatcher.UIThread.Post(() => ShowFault("The clean-up rewrote rather than tidied, so your words were typed as heard. Both are in the history."));
                 }
             };
             engine.CopyTranscriptAsync = async text =>
@@ -187,24 +214,13 @@ public sealed class MainWindow : ShellWindow
         RefreshHint();
     }
 
-    private WrapPanel BuildNav()
-    {
-        var settings = new NavLink("Settings");
-        _settingsLink = settings;
-        settings.Click += (_, _) => ShowSettings();
-        return new WrapPanel
-        {
-            Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy, Tokens.Layout.ScrollGutter * 2, 0),
-            Children = { Panels.Row(Tokens.Space.Tight, _transcriptionsLink, _dictionaryLink, settings) },
-        };
-    }
-
-    private StackPanel BuildModeSelector()
+    /// <summary>Instant or Polished, in the caption: the one choice made many times a day.</summary>
+    private Border BuildModeSelector()
     {
         var instant = new NavLink("Instant");
         var polished = new NavLink("Polished");
-        ToolTip.SetTip(instant, "Local transcription. Text is typed without AI clean-up.");
-        ToolTip.SetTip(polished, "Gemini tidies the transcript before it is typed.");
+        ToolTip.SetTip(instant, "Typed exactly as heard, on this machine, with no clean-up.");
+        ToolTip.SetTip(polished, "Tidied by Gemini before it's typed: punctuation, self-corrections and your house style.");
 
         void Refresh()
         {
@@ -215,7 +231,7 @@ public sealed class MainWindow : ShellWindow
 
         void Choose(bool usePolished)
         {
-            if (_composition is null || _composition.Engine?.State != DictationState.Idle) return;
+            if (_composition is null || _composition.Engine?.State is not (null or DictationState.Idle)) return;
             if (_composition.Settings.Data.AiCleanup != usePolished)
                 _composition.Settings.Update(_composition.Settings.Data with { AiCleanup = usePolished });
         }
@@ -227,54 +243,74 @@ public sealed class MainWindow : ShellWindow
             _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
         Refresh();
 
-        var label = Text.Muted("Dictation mode");
-        label.VerticalAlignment = VerticalAlignment.Center;
-        return Panels.Row(Tokens.Space.Tight, label, instant, polished);
+        return NavLink.Track(instant, polished);
     }
 
     private Border BuildBody()
     {
         var body = new DockPanel { ClipToBounds = false };
-        body.Children.Add(Panels.Docked(BuildNav(), Dock.Top));
-        body.Children.Add(Panels.Docked(BuildHero(), Dock.Top));
-        body.Children.Add(Panels.Docked(_fault, Dock.Top));
+        body.Children.Add(Panels.Docked(BuildMasthead(), Dock.Top));
+        body.Children.Add(Panels.Docked(BuildStatus(), Dock.Top));
         body.Children.Add(_sectionHost);
         return new Border { Child = body, MaxWidth = Tokens.Layout.MainContentMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Roomy) };
     }
 
-    /// <summary>The hero: badge, headline, subtitle, the pill; and the readout card beside it.</summary>
-    private Grid BuildHero()
+    /// <summary>One row: the title on the left, the sections beside it on the right.</summary>
+    private Grid BuildMasthead()
+    {
+        var tabs = NavLink.Track(_transcriptionsLink, _dictionaryLink, _settingsLink);
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, Tokens.Space.Wide, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy),
+        };
+        Grid.SetColumn(tabs, 1);
+        row.Children.Add(_title);
+        row.Children.Add(tabs);
+        // A narrow window takes the title down a size rather than cutting it short.
+        row.SizeChanged += (_, e) => _title.FontSize = e.NewSize.Width < Tokens.Layout.NarrowTitleBelow ? Tokens.Fonts.TitleNarrow : Tokens.Fonts.Title;
+        return row;
+    }
+
+    private void SetTitle(string plain, string accent)
+    {
+        _title.Inlines =
+        [
+            new Run(plain),
+            new Run(accent) { FontStyle = FontStyle.Italic, Foreground = Tokens.Brushes.BrandStrong },
+        ];
+    }
+
+    /// <summary>
+    /// The status card: a tile whose hue is the state, the state in words, the shortcut as
+    /// keycaps, and the switch. While recording the timer and the bars join it; a fault is
+    /// one coral line inside it, never a banner of its own.
+    /// </summary>
+    private Border BuildStatus()
     {
         _enabled = new Controls.Switch { IsChecked = _composition?.Settings.Data.IsEnabled ?? true, VerticalAlignment = VerticalAlignment.Center };
         _enabled.IsCheckedChanged += (_, _) => SetEnabled(_enabled.IsChecked == true);
-        var onLabel = Text.Eyebrow("On");
-        onLabel.VerticalAlignment = VerticalAlignment.Center;
-        var badgeRow = Panels.Row(Tokens.Space.Base, _badge, _enabled, onLabel);
-        _enabledLabel = (TextBlock)badgeRow.Children[2];
+        _enabledLabel = Text.Eyebrow(_enabled.IsChecked == true ? "On" : "Off");
+        _enabledLabel.VerticalAlignment = VerticalAlignment.Center;
+        ToolTip.SetTip(_enabled, "Off stops Acapella listening for your shortcut without quitting it.");
 
-        _subtitle.Margin = new Thickness(Tokens.Space.Roomy, 0);
-        _subtitle.VerticalAlignment = VerticalAlignment.Center;
-        _bars.IsVisible = false;
-        var timer = Card.Subtle(_counter, Tokens.Space.Snug);
-        timer.Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug);
-        var readout = Panels.Row(Tokens.Space.Base, _bars, timer);
-        var hero = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
-            RowDefinitions = new RowDefinitions("Auto,Auto"),
-            Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy),
-        };
-        Grid.SetColumn(_subtitle, 1);
-        Grid.SetColumn(readout, 2);
-        Grid.SetRow(_preview, 1);
-        Grid.SetColumnSpan(_preview, 3);
-        _preview.MaxWidth = Tokens.Layout.ContentMaxWidth;
-        _preview.Margin = new Thickness(0, Tokens.Space.Snug, 0, 0);
-        hero.Children.Add(badgeRow);
-        hero.Children.Add(_subtitle);
-        hero.Children.Add(readout);
-        hero.Children.Add(_preview);
-        return hero;
+        var stateLine = Panels.Row(Tokens.Space.Snug, _stateTitle, _counter);
+        var words = Panels.Column(Tokens.Space.Tight, stateLine, _shortcut);
+        words.VerticalAlignment = VerticalAlignment.Center;
+        // The same height in every state, so pausing never nudges the list below.
+        words.MinHeight = Tokens.Layout.StatusWordsHeight;
+
+        var right = Panels.Row(Tokens.Space.Base, _bars, Panels.Row(Tokens.Space.Snug, _enabled, _enabledLabel));
+        var top = new DockPanel();
+        DockPanel.SetDock(right, Dock.Right);
+        top.Children.Add(right);
+        top.Children.Add(Panels.Row(Tokens.Space.Base, _stateTile, words));
+
+        _preview.Margin = new Thickness(Tokens.Layout.TileLead + Tokens.Space.Base, Tokens.Space.Snug, 0, 0);
+        var card = Card.Standard(Panels.Column(0, top, _preview, _fault), Tokens.Space.Roomy);
+        card.Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Base);
+        card.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy);
+        return card;
     }
 
     private Border BuildFault()
@@ -282,9 +318,20 @@ public sealed class MainWindow : ShellWindow
         var dismiss = new SgButton("Dismiss", SgButton.Kind.Quiet, compact: true);
         dismiss.Click += (_, _) => _fault.IsVisible = false;
 
-        var notice = Card.Notice(Panels.Split(_faultText, dismiss), Tokens.Brushes.RoseLight, Tokens.Brushes.RoseTint);
-        notice.IsVisible = false;
-        notice.Margin = new Thickness(Tokens.Layout.ScrollGutter, 0, Tokens.Layout.ScrollGutter, Tokens.Space.Roomy);
+        var line = new DockPanel();
+        DockPanel.SetDock(dismiss, Dock.Right);
+        line.Children.Add(dismiss);
+        line.Children.Add(Panels.Row(Tokens.Space.Snug, new Glyph(Icons.Alert, 15, Tokens.Accent.Coral.Ink), _faultText));
+        var notice = new Border
+        {
+            Background = Tokens.Accent.Coral.Fill,
+            CornerRadius = new CornerRadius(Tokens.Radius.Button),
+            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Tight, Tokens.Space.Tight, Tokens.Space.Tight),
+            Margin = new Thickness(0, Tokens.Space.Base, 0, Tokens.Space.Tight),
+            Child = line,
+            IsVisible = false,
+        };
+        _faultText.TextWrapping = TextWrapping.Wrap;
         return notice;
     }
 
@@ -308,15 +355,17 @@ public sealed class MainWindow : ShellWindow
 
     private void ShowSection(bool transcriptions)
     {
-        if (_settingsLink is not null) _settingsLink.IsActive = false;
+        _settingsLink.IsActive = false;
         RefreshHint();
         _transcriptionsLink.IsActive = transcriptions;
         _dictionaryLink.IsActive = !transcriptions;
+        if (transcriptions) SetTitle("Your ", "dictations"); else SetTitle("Your ", "dictionary");
 
         if (_composition is null)
         {
-            _sectionHost.Content = Panels.EmptyState("🎙️", transcriptions ? "No recordings yet" : "Dictionary is empty",
-                transcriptions ? "Use your shortcut to start dictating." : "Add the words it keeps getting wrong.");
+            _sectionHost.Content = transcriptions
+                ? Panels.EmptyState(Icons.Mic, Tokens.Accent.Brand, "No dictations yet. Press your shortcut and speak.")
+                : Panels.EmptyState(Icons.Book, Tokens.Accent.Emerald, "Nothing in the dictionary yet. Add the words it keeps getting wrong.");
             return;
         }
 
@@ -351,7 +400,8 @@ public sealed class MainWindow : ShellWindow
     {
         _transcriptionsLink.IsActive = false;
         _dictionaryLink.IsActive = false;
-        if (_settingsLink is not null) _settingsLink.IsActive = true;
+        _settingsLink.IsActive = true;
+        SetTitle("Your ", "settings");
         if (_composition is null)
         {
             _sectionHost.Content = Text.Body("Settings");
@@ -364,6 +414,7 @@ public sealed class MainWindow : ShellWindow
         }
         _sectionHost.Content = _settingsView;
     }
+
     private void ShowAbout() => _ = new AboutWindow().ShowDialog(this);
 
     private void ShowFault(string message)
@@ -389,30 +440,35 @@ public sealed class MainWindow : ShellWindow
 
     private string KeyName => KeyNames.Describe(_composition?.Settings.Data.PushToTalkKey ?? 0xA3, _composition?.Settings.Data.PushToTalkModifiers ?? 0);
 
-    /// <summary>The idle subtitle: which key, which mode, whether AI is on.</summary>
+    /// <summary>The line under the state: the shortcut as keycaps and how it works, or why it's paused.</summary>
     private void RefreshHint()
     {
-        if (_composition is null) { _subtitle.Text = "Use your shortcut to start dictating."; return; }
-
-        if (!_composition.Settings.Data.IsEnabled)
+        var paused = _composition is not null && !_composition.Settings.Data.IsEnabled;
+        var mode = _composition?.Settings.Data.Mode switch
         {
-            _subtitle.Text = "Paused. Flip the switch to listen for the key again.";
-            ToolTip.SetTip(_subtitle, null);
+            ActivationMode.Tap => "tap to start and stop",
+            ActivationMode.Hold => "hold to talk",
+            _ => "hold or tap to talk",
+        };
+        var hint = paused ? "paused" : $"{KeyName}|{mode}";
+        if (hint == _lastHint) return;
+        _lastHint = hint;
+
+        if (paused)
+        {
+            _shortcut.Child = Text.Muted("Switch it back on to listen for your shortcut.");
             return;
         }
 
-        var mode = _composition.Settings.Data.Mode switch
-        {
-            ActivationMode.Tap => $"{KeyName} · Tap to start / stop",
-            ActivationMode.Hold => $"{KeyName} · Hold to talk",
-            _ => $"{KeyName} · Hold or tap to talk",
-        };
-        var ai = _composition.Settings.Data.AiCleanup ? " Cleaned up by Gemini before it lands." : " Typed exactly as you said it.";
-        _subtitle.Text = mode;
-        ToolTip.SetTip(_subtitle, ai.Trim());
+        var how = Text.Muted(mode);
+        how.VerticalAlignment = VerticalAlignment.Center;
+        _shortcut.Child = Panels.Row(Tokens.Space.Snug, KeyCaps.Make(KeyName), how);
+        ToolTip.SetTip(_shortcut, _composition?.Settings.Data.AiCleanup == false
+            ? "Instant: typed exactly as you said it."
+            : "Polished: tidied by Gemini before it lands.");
     }
 
-    /// <summary>Pulls state from the engine onto the hero.</summary>
+    /// <summary>Pulls state from the engine onto the status card.</summary>
     private void SyncFromEngine()
     {
         RefreshHint();
@@ -462,42 +518,48 @@ public sealed class MainWindow : ShellWindow
     /// <summary>Pauses or resumes the key without quitting.</summary>
     private void SetEnabled(bool on)
     {
-        if (_enabledLabel is not null) _enabledLabel.Text = on ? "ON" : "OFF";
+        if (_enabledLabel is not null) _enabledLabel.Text = on ? "On" : "Off";
         if (_composition is not null && _composition.Settings.Data.IsEnabled != on)
         {
             _composition.Settings.Update(_composition.Settings.Data with { IsEnabled = on });
         }
         _lastState = string.Empty;
+        _lastHint = string.Empty;
+        RefreshHint();
         SetState(recording: false, transcribing: false);
     }
 
     private void SetState(bool recording, bool transcribing)
     {
         _bars.IsVisible = recording;
+        _counter.IsVisible = recording || transcribing;
         var off = _composition is not null && !_composition.Settings.Data.IsEnabled;
-        // The badge shows while busy, and while paused: an app that has been switched off
-        // and looks exactly like one that is ready is a support question waiting to happen.
-        _badge.IsVisible = recording || transcribing || off;
         if (off && !recording && !transcribing)
         {
-            _badge.Set("Paused", Tokens.Brushes.Faint, live: false);
+            _stateTile.SetAccent(Tokens.Accent.Slate);
+            _stateTile.SetIcon(Icons.MicOff);
+            _stateTitle.Text = "Paused";
             _readoutLabel.Text = "OFF";
             return;
         }
 
+        _stateTile.SetIcon(transcribing ? Icons.Sparkles : Icons.Mic);
         if (recording)
         {
-            _badge.Set("Listening", Tokens.Brushes.Rose, live: true);
+            _stateTile.SetAccent(Tokens.Accent.Crimson);
+            _stateTitle.Text = "Listening";
             _readoutLabel.Text = "RECORDING";
         }
         else if (transcribing)
         {
-            _badge.Set("Working", Tokens.Brushes.AmberMid, live: true);
+            _stateTile.SetAccent(Tokens.Accent.Amber);
+            _stateTitle.Text = _composition?.Settings.Data.AiCleanup == false ? "Writing it out" : "Tidying up";
             _readoutLabel.Text = "TRANSCRIBING";
         }
         else
         {
-            _badge.Set("Ready", Tokens.Brushes.Brand, live: false);
+            _stateTile.SetAccent(Tokens.Accent.Brand);
+            _stateTitle.Text = "Ready";
             _readoutLabel.Text = "IDLE";
         }
     }

@@ -75,6 +75,13 @@ public sealed class Composition : IAsyncDisposable
     /// <summary>Whether the speech model is present on disk.</summary>
     public static bool IsModelInstalled => ParakeetTranscriber.Locate() is not null;
 
+    /// <summary>
+    /// A composition over the given stores with no engine or platform layer, so every window
+    /// can be built and rendered headless against sample data, never the user's own files.
+    /// </summary>
+    public static Composition ForPreview(AppSettings settings, DictionaryFile dictionary, TranscriptStore transcripts, SuggestionStore suggestions) =>
+        new(settings, dictionary, transcripts, engine: null, transcriber: null, startup: null, devices: null, platformAvailable: false, suggestions);
+
     /// <summary>Builds the object graph.</summary>
     public static Composition Create()
     {

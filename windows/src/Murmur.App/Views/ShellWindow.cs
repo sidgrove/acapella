@@ -65,7 +65,7 @@ public abstract class ShellWindow : Window
     {
         var panel = new Border
         {
-            CornerRadius = new CornerRadius(Tokens.Radius.CardLarge),
+            CornerRadius = new CornerRadius(Tokens.Radius.Frame),
             BorderBrush = Tokens.Brushes.Line,
             BorderThickness = new Thickness(Tokens.Border.Hairline),
             ClipToBounds = true,

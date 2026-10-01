@@ -11,7 +11,14 @@ using Murmur.App.Design;
 
 namespace Murmur.App.Controls;
 
-/// <summary>A quiet ambient wash and faint grid behind opaque content cards.</summary>
+/// <summary>
+/// The canvas behind the cards: calm and still, a near-white base with two faint static tints,
+/// periwinkle top right and peach bottom left.
+/// </summary>
+/// <remarks>
+/// The Bible (29/09/2026): "No orbs, grid, blur, bokeh or glass." The faint grid restored on
+/// 23/09 went with it; the tints are Sidgrove Intelligence's sign-in hue.
+/// </remarks>
 public sealed class WashPanel : Decorator
 {
     /// <inheritdoc />
@@ -20,14 +27,9 @@ public sealed class WashPanel : Decorator
         var bounds = new Rect(Bounds.Size);
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
 
-        context.FillRectangle(Tokens.Brushes.Wash, bounds);
-        context.FillRectangle(Tokens.Brushes.AmbientPeri, bounds);
-        context.FillRectangle(Tokens.Brushes.AmbientPeach, bounds);
-        var grid = new Pen(Tokens.Brushes.GridLine, Tokens.Border.Hairline);
-        for (var x = Tokens.Layout.GridPitch; x < bounds.Width; x += Tokens.Layout.GridPitch)
-            context.DrawLine(grid, new Point(x, 0), new Point(x, bounds.Height));
-        for (var y = Tokens.Layout.GridPitch; y < bounds.Height; y += Tokens.Layout.GridPitch)
-            context.DrawLine(grid, new Point(0, y), new Point(bounds.Width, y));
+        context.FillRectangle(Tokens.Canvas.Base, bounds);
+        context.FillRectangle(Tokens.Canvas.Primary, bounds);
+        context.FillRectangle(Tokens.Canvas.Secondary, bounds);
     }
 }
 
@@ -88,7 +90,7 @@ public static class Card
         Background = background,
         BorderBrush = edge,
         BorderThickness = new Thickness(Tokens.Border.Hairline),
-        CornerRadius = new CornerRadius(Tokens.Radius.Inner),
+        CornerRadius = new CornerRadius(Tokens.Radius.Button),
         Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Base),
         Child = content,
     };
@@ -137,6 +139,12 @@ public static class Text
     /// <summary>Metadata and captions.</summary>
     public static TextBlock Caption(string text) => Make(text, Tokens.Fonts.Sans, Tokens.Fonts.Caption, FontWeight.Normal, Tokens.Brushes.Faint);
 
+    /// <summary>A row's metadata: when, where, how long. 12px, faint, never lighter.</summary>
+    public static TextBlock Meta(string text) => Make(text, Tokens.Fonts.Sans, Tokens.Fonts.Small, FontWeight.Normal, Tokens.Brushes.Faint);
+
+    /// <summary>A group's label: a day in the history, a field in a dialog. <c>text-col</c>: 12.5px 600, sentence case.</summary>
+    public static TextBlock Label(string text) => Make(text, Tokens.Fonts.Sans, Tokens.Fonts.Label, FontWeight.SemiBold, Tokens.Brushes.ColHeader);
+
     /// <summary>An eyebrow label. <c>.sg-hero-eyebrow</c>: 11px, sentence case, muted.</summary>
     public static TextBlock Eyebrow(string text) =>
         Make(text, Tokens.Fonts.Sans, Tokens.Fonts.Eyebrow, FontWeight.Medium, Tokens.Brushes.Muted, Tokens.Fonts.EyebrowTracking);
@@ -174,37 +182,20 @@ public static class Text
     }
 }
 
-/// <summary>A chip. <c>.sg-*</c> chip treatment: 10.5px 600, 0.02em, pill, tinted.</summary>
+/// <summary>The chips by meaning, each one <see cref="Chip"/> in its accent.</summary>
 public static class Pill
 {
     /// <summary>Brand-tinted.</summary>
-    public static Border Brand(string text) => Make(text, Tokens.Brushes.BrandStrong, Tokens.Brushes.BrandLight);
+    public static Border Brand(string text) => new Chip(text, Tokens.Accent.Brand);
 
-    /// <summary>Amber.</summary>
-    public static Border Amber(string text) => Make(text, Tokens.Brushes.Amber, Tokens.Brushes.AmberLight);
+    /// <summary>Amber: caution.</summary>
+    public static Border Amber(string text) => new Chip(text, Tokens.Accent.Amber);
 
-    /// <summary>Rose.</summary>
-    public static Border Rose(string text) => Make(text, Tokens.Brushes.Rose, Tokens.Brushes.RoseLight);
+    /// <summary>Coral: failed or blocked.</summary>
+    public static Border Rose(string text) => new Chip(text, Tokens.Accent.Coral);
 
-    /// <summary>Neutral.</summary>
-    public static Border Neutral(string text) => Make(text, Tokens.Brushes.Muted, Tokens.Brushes.Surface);
-
-    private static Border Make(string text, IBrush foreground, IBrush background) => new()
-    {
-        Background = background,
-        CornerRadius = new CornerRadius(Tokens.Radius.Pill),
-        Padding = new Thickness(Tokens.Space.Snug, Tokens.Space.Hair + Tokens.Border.Hairline),
-        VerticalAlignment = VerticalAlignment.Center,
-        Child = new TextBlock
-        {
-            Text = text,
-            FontFamily = Tokens.Fonts.Sans,
-            FontSize = Tokens.Fonts.Badge,
-            FontWeight = FontWeight.SemiBold,
-            LetterSpacing = Tokens.Fonts.BadgeTracking,
-            Foreground = foreground,
-        },
-    };
+    /// <summary>Slate: neutral.</summary>
+    public static Border Neutral(string text) => new Chip(text, Tokens.Accent.Slate);
 }
 
 /// <summary>
@@ -246,16 +237,20 @@ public sealed class SgButton : Button
     private readonly Kind _kind;
     private readonly Border _skin = new();
 
-    /// <summary>Creates a button with a text label, or any content.</summary>
-    public SgButton(object label, Kind kind = Kind.Ghost, bool compact = false)
+    /// <summary>Creates a button with a text label, or any content, and an optional leading icon.</summary>
+    /// <param name="label">The words: a verb.</param>
+    /// <param name="kind">The variant.</param>
+    /// <param name="compact">The 32px size, for rows and cards; otherwise 36px.</param>
+    /// <param name="icon">One of <see cref="Icons"/>, drawn in the label's ink.</param>
+    public SgButton(object label, Kind kind = Kind.Ghost, bool compact = false, string? icon = null)
     {
         _kind = kind;
         Content = label;
 
         var hero = kind == Kind.Hero;
         FontFamily = Tokens.Fonts.Sans;
-        FontSize = hero ? Tokens.Fonts.HeroButton : compact ? Tokens.Fonts.Small : Tokens.Fonts.Body;
-        FontWeight = kind is Kind.Primary or Kind.Hero ? FontWeight.Bold : FontWeight.SemiBold;
+        FontSize = hero ? Tokens.Fonts.HeroButton : compact ? Tokens.Fonts.ButtonSmall : Tokens.Fonts.Button;
+        FontWeight = FontWeight.SemiBold;
         Height = hero ? Tokens.Layout.HeroButtonHeight : compact ? Tokens.Layout.ButtonHeightSmall : Tokens.Layout.ButtonHeight;
         Padding = hero
             ? new Thickness(Tokens.Layout.HeroPadLeft, 0, Tokens.Layout.HeroPadRight, 0)
@@ -270,7 +265,7 @@ public sealed class SgButton : Button
         RenderTransform = new TranslateTransform();
         Transitions = [new TransformOperationsTransition { Property = RenderTransformProperty, Duration = Tokens.Motion.Press }];
 
-        _skin.CornerRadius = new CornerRadius(Tokens.Radius.Pill);
+        _skin.CornerRadius = new CornerRadius(hero ? Tokens.Radius.Pill : Tokens.Radius.Button);
         _skin.BorderThickness = new Thickness(Tokens.Border.Hairline);
         _skin.Transitions =
         [
@@ -310,6 +305,24 @@ public sealed class SgButton : Button
                     },
                 };
             }
+            else if (icon is not null)
+            {
+                // The icon leads and takes the label's ink, so a hover that deepens the words
+                // deepens the mark with them.
+                var glyph = new Glyph(icon, compact ? 12 : 13);
+                glyph.Bind(Glyph.InkProperty, button.GetObservable(ForegroundProperty));
+                presenter.Padding = new Thickness(0);
+                var row = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = compact ? Tokens.Space.Chip : Tokens.Space.Snug,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children = { glyph, presenter },
+                };
+                row.Bind(MarginProperty, button.GetObservable(PaddingProperty));
+                _skin.Child = row;
+            }
             else
             {
                 _skin.Child = presenter;
@@ -340,8 +353,10 @@ public sealed class SgButton : Button
         switch (_kind)
         {
             case Kind.Primary:
+                // The soft recipe: light fill, the same hue's soft edge, dark ink. Never a
+                // saturated fill with white text, and the old #a8b0d8 edge is retired.
                 _skin.Background = over ? Tokens.Brushes.PillFillHover : Tokens.Brushes.PillFill;
-                _skin.BorderBrush = over ? Tokens.Brushes.BrandMid : Tokens.Brushes.PillBorder;
+                _skin.BorderBrush = over ? Tokens.Brushes.CardBorderStrong : Tokens.Brushes.PillBorder;
                 _skin.BoxShadow = Tokens.Shadow.Button;
                 Foreground = Tokens.Brushes.BrandStrong;
                 break;
@@ -358,22 +373,25 @@ public sealed class SgButton : Button
                 Foreground = over ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
                 break;
             case Kind.Quiet:
-                _skin.Background = over ? Tokens.Brushes.Surface : Tokens.Brushes.None;
+                // Row actions: icon and word in the brand ink, no fill or edge at rest, the
+                // soft tint under the pointer.
+                _skin.Background = over ? Tokens.Accent.Brand.Fill : Tokens.Brushes.None;
                 _skin.BorderBrush = Tokens.Brushes.None;
                 _skin.BoxShadow = Tokens.Shadow.None;
-                Foreground = over ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
+                Foreground = Tokens.Brushes.BrandStrong;
                 break;
             case Kind.Danger:
-                _skin.Background = over ? Tokens.Brushes.RoseLight : Tokens.Brushes.None;
+                _skin.Background = over ? Tokens.Accent.Coral.Fill : Tokens.Brushes.None;
                 _skin.BorderBrush = Tokens.Brushes.None;
                 _skin.BoxShadow = Tokens.Shadow.None;
-                Foreground = Tokens.Brushes.Rose;
+                Foreground = Tokens.Accent.Coral.Ink;
                 break;
         }
 
-        // Hero rises 2px on hover and settles 1px below rest on press; everything else
-        // only travels 1px on press.
-        var y = down ? Tokens.Motion.PressTravel : (_kind == Kind.Hero && over ? -Tokens.Motion.HeroLift : 0);
+        // Hero rises 2px on hover; a boxed button lifts 1px, as HeaderAction does; every
+        // variant settles 1px on press.
+        var lift = _kind == Kind.Hero ? Tokens.Motion.HeroLift : _kind is Kind.Primary or Kind.Ghost ? Tokens.Motion.PressTravel : 0;
+        var y = down ? Tokens.Motion.PressTravel : over ? -lift : 0;
         RenderTransform = new TranslateTransform(0, y);
 
         Opacity = IsEnabled ? 1 : Tokens.Opacity.Disabled;
@@ -706,9 +724,10 @@ public sealed class Segmented : Border
     /// <summary>Builds the control.</summary>
     public Segmented(IEnumerable<string> labels, int selected = 0)
     {
-        Background = Tokens.Brushes.NavBed;
-        CornerRadius = new CornerRadius(Tokens.Radius.Pill);
+        Background = Tokens.Brushes.ToggleBed;
+        CornerRadius = new CornerRadius(Tokens.Radius.Button);
         Padding = new Thickness(Tokens.Space.TrackInset);
+        HorizontalAlignment = HorizontalAlignment.Left;
 
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Hair };
         var index = 0;
@@ -726,9 +745,9 @@ public sealed class Segmented : Border
             var pill = new Border
             {
                 Child = text,
-                CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+                CornerRadius = new CornerRadius(Tokens.Radius.Segment),
                 Padding = new Thickness(Tokens.Layout.NavPillPadX, 0),
-                Height = Tokens.Layout.NavPillHeight - 2 * Tokens.Space.TrackInset + Tokens.Space.Tight,
+                Height = Tokens.Layout.SegmentHeight,
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
                 Transitions =
                 [
@@ -781,11 +800,18 @@ public static class Field
             Background = Tokens.Brushes.Card,
             BorderBrush = Tokens.Brushes.PanelBorder,
             BorderThickness = new Thickness(Tokens.Border.Hairline),
-            CornerRadius = new CornerRadius(Tokens.Radius.Card),
+            CornerRadius = new CornerRadius(Tokens.Radius.Control),
             Padding = new Thickness(Tokens.Layout.FieldPadX, 0),
             Height = Tokens.Layout.FieldHeight,
             VerticalContentAlignment = VerticalAlignment.Center,
         };
+        // The Fluent theme paints the Windows accent blue round a focused box. Ours is the
+        // brand's soft ring, and a hover firms the hairline rather than shading the fill.
+        box.Resources["TextControlBorderBrushFocused"] = Tokens.Brushes.FocusBorder;
+        box.Resources["TextControlBorderBrushPointerOver"] = Tokens.Brushes.CardBorderStrong;
+        box.Resources["TextControlBackgroundFocused"] = Tokens.Brushes.Card;
+        box.Resources["TextControlBackgroundPointerOver"] = Tokens.Brushes.Card;
+        box.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(Tokens.Border.Hairline);
         if (secret) box.PasswordChar = '•';
         return box;
     }
@@ -944,10 +970,15 @@ public sealed class Badge : Border
     }
 }
 
-/// <summary>Quiet navigation with a neutral selected fill and stronger label.</summary>
+/// <summary>
+/// One segment of a section switcher: muted at rest, the current one a white pill lifted off
+/// the bed in the brand ink. Selection by elevation and weight, never hue. A count rides
+/// beside the label as a chip.
+/// </summary>
 public sealed class NavLink : Button
 {
     private readonly TextBlock _label;
+    private readonly Chip _count;
     private readonly Border _surface;
     private bool _active;
 
@@ -958,15 +989,18 @@ public sealed class NavLink : Button
         {
             Text = text,
             FontFamily = Tokens.Fonts.Sans,
-            FontSize = Tokens.Fonts.Nav,
-            FontWeight = FontWeight.Medium,
+            FontSize = Tokens.Fonts.Tab,
+            FontWeight = FontWeight.SemiBold,
             Foreground = Tokens.Brushes.Muted,
+            VerticalAlignment = VerticalAlignment.Center,
         };
+        _count = new Chip(string.Empty, Tokens.Accent.Amber) { IsVisible = false, Height = Tokens.Layout.CountChipHeight };
         _surface = new Border
         {
-            CornerRadius = new CornerRadius(Tokens.Radius.Control),
-            Padding = new Thickness(Tokens.Layout.NavPillPadX, Tokens.Space.Snug),
-            Child = _label,
+            CornerRadius = new CornerRadius(Tokens.Radius.Segment),
+            Padding = new Thickness(Tokens.Layout.NavPillPadX, 0),
+            Height = Tokens.Layout.SegmentHeight,
+            Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center, Children = { _label, _count } },
         };
         Background = Tokens.Brushes.None;
         BorderThickness = new Thickness(0);
@@ -979,6 +1013,33 @@ public sealed class NavLink : Button
     {
         get => _label.Text ?? string.Empty;
         set => _label.Text = value;
+    }
+
+    /// <summary>Something waiting in the section, shown as a chip beside the label; nothing at zero.</summary>
+    public int Count
+    {
+        get => int.TryParse(_count.Text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0;
+        set
+        {
+            _count.Text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _count.IsVisible = value > 0;
+        }
+    }
+
+    /// <summary>A bed holding a row of links: the segmented track.</summary>
+    public static Border Track(params Control[] links)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Hair };
+        foreach (var link in links) row.Children.Add(link);
+        return new Border
+        {
+            Background = Tokens.Brushes.ToggleBed,
+            CornerRadius = new CornerRadius(Tokens.Radius.Button),
+            Padding = new Thickness(Tokens.Space.TrackInset),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = row,
+        };
     }
 
     /// <summary>Whether this link is the current section.</summary>
@@ -997,10 +1058,10 @@ public sealed class NavLink : Button
 
     private void Paint()
     {
-        var lit = _active || IsPointerOver;
-        _label.Foreground = lit ? Tokens.Brushes.Ink : Tokens.Brushes.Muted;
-        _label.FontWeight = _active ? FontWeight.SemiBold : FontWeight.Medium;
-        _surface.Background = lit ? Tokens.Brushes.Surface : Tokens.Brushes.None;
+        _label.Foreground = _active || IsPointerOver ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
+        _label.FontWeight = _active ? FontWeight.Bold : FontWeight.SemiBold;
+        _surface.Background = _active ? Tokens.Brushes.Card : IsPointerOver ? Tokens.Brushes.NavHover : Tokens.Brushes.None;
+        _surface.BoxShadow = _active ? Tokens.Shadow.NavActive : Tokens.Shadow.None;
     }
 }
 

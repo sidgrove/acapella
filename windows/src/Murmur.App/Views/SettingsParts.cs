@@ -38,11 +38,11 @@ public sealed class KeyPart : UserControl
         _ => null,
     };
 
-    private const string IdleHint = "Click, then press a key or a combination like Ctrl + Shift + Space";
+    private const string IdleHint = "Click here, then press a key or a combination like Ctrl + Shift + Space";
 
     private readonly Composition _composition;
     private readonly AppSettings _settings;
-    private readonly TextBlock _keyName;
+    private readonly Border _keyName;
     private readonly Border _keyWarning;
     private readonly TextBlock _keyWarningText;
     private readonly Border _status;
@@ -57,11 +57,18 @@ public sealed class KeyPart : UserControl
         _composition = composition;
         _settings = composition.Settings;
 
-        _keyName = Text.BodyStrong(KeyNames.Describe(_settings.Data.PushToTalkKey, _settings.Data.PushToTalkModifiers));
+        _keyName = new Border { HorizontalAlignment = HorizontalAlignment.Left, Child = KeyCaps.Make(KeyNames.Describe(_settings.Data.PushToTalkKey, _settings.Data.PushToTalkModifiers)) };
         _keyWarningText = Text.Body(string.Empty);
-        _keyWarningText.Foreground = Tokens.Brushes.Amber;
-        _keyWarning = Card.Notice(_keyWarningText, Tokens.Brushes.AmberLight, new Avalonia.Media.SolidColorBrush(Tokens.Colors.AmberMid, Tokens.Opacity.FocusBorder));
-        _keyWarning.IsVisible = false;
+        _keyWarningText.Foreground = Tokens.Accent.Amber.Ink;
+        _keyWarningText.VerticalAlignment = VerticalAlignment.Center;
+        _keyWarning = new Border
+        {
+            Background = Tokens.Accent.Amber.Fill,
+            CornerRadius = new CornerRadius(Tokens.Radius.Button),
+            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
+            Child = Panels.Row(Tokens.Space.Snug, new Glyph(Icons.Alert, 15, Tokens.Accent.Amber.Ink), _keyWarningText),
+            IsVisible = false,
+        };
         _status = Pill.Brand("Record a key");
 
         var mode = new Segmented(["Hold or tap", "Hold to talk", "Tap to toggle"], (int)ModeIndex(_settings.Data.Mode));
@@ -79,12 +86,17 @@ public sealed class KeyPart : UserControl
             picks.Children.Add(pick);
         }
 
+        var pickLabel = Text.Caption("Or pick one");
+        pickLabel.VerticalAlignment = VerticalAlignment.Center;
+        picks.Children.Insert(0, pickLabel);
+
+        var modeRow = Panels.Row(Tokens.Space.Snug, mode, Hint.Make("Hold or tap: hold the key and talk, or tap it to start and tap again to stop. Escape cancels a recording. The key is passed through, never swallowed, so it can't get stuck down."));
+
         Content = Panels.Column(Tokens.Space.Base,
             BuildKeyCapture(),
             picks,
             _keyWarning,
-            mode,
-            Text.Muted("Hold or tap: hold the key and talk, or tap it to start and tap again to stop. Escape cancels a recording. The key is passed through, never swallowed, so it can't get stuck down."));
+            modeRow);
 
         SelectKey(_settings.Data.PushToTalkKey, _settings.Data.PushToTalkModifiers, initial: true);
     }
@@ -95,7 +107,7 @@ public sealed class KeyPart : UserControl
     private Border BuildKeyCapture()
     {
         var hint = Text.Muted(IdleHint);
-        var box = Card.Subtle(Panels.Split(Panels.Column(Tokens.Space.Hair, _keyName, hint), _status), Tokens.Space.Roomy);
+        var box = Card.Subtle(Panels.Split(Panels.Column(Tokens.Space.Snug, _keyName, hint), _status), Tokens.Space.Roomy);
         box.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
         box.Focusable = true;
 
@@ -105,7 +117,7 @@ public sealed class KeyPart : UserControl
             _composition.Engine?.CancelCapture();
             box.BorderBrush = Tokens.Brushes.PanelBorder;
             hint.Text = IdleHint;
-            SetStatus(saved ? "Saved ✓" : "Record a key", saved ? Tokens.Brushes.Brand : Tokens.Brushes.BrandStrong, Tokens.Brushes.BrandLight);
+            SetStatus(saved ? "Saved" : "Record a key", saved ? Tokens.Accent.Emerald : Tokens.Accent.Brand);
         }
 
         // Recorded by the keyboard hook, not by this window: the hook sees Win, Alt and
@@ -118,7 +130,7 @@ public sealed class KeyPart : UserControl
             box.Focus();
             box.BorderBrush = Tokens.Brushes.FocusBorder;
             hint.Text = "Listening… press a key, or hold modifiers and press a key. Escape to cancel";
-            SetStatus("Listening…", Tokens.Brushes.Rose, Tokens.Brushes.RoseLight);
+            SetStatus("Listening…", Tokens.Accent.Crimson);
             _composition.Engine.BeginCapture();
         };
 
@@ -175,16 +187,16 @@ public sealed class KeyPart : UserControl
         return box;
     }
 
-    private void SetStatus(string text, Avalonia.Media.IBrush foreground, Avalonia.Media.IBrush background)
+    private void SetStatus(string text, Tokens.Accent accent)
     {
-        _status.Background = background;
-        if (_status.Child is TextBlock label) { label.Text = text.ToUpperInvariant(); label.Foreground = foreground; }
+        _status.Background = accent.Fill;
+        if (_status.Child is TextBlock label) { label.Text = text; label.Foreground = accent.Ink; }
     }
 
     private void SelectKey(int key, int modifiers, bool initial = false)
     {
         var text = modifiers == 0 ? WarningFor(key) : null;
-        _keyName.Text = KeyNames.Describe(key, modifiers);
+        _keyName.Child = KeyCaps.Make(KeyNames.Describe(key, modifiers));
         if (!initial && (_settings.Data.PushToTalkKey != key || _settings.Data.PushToTalkModifiers != modifiers))
         {
             _settings.Update(_settings.Data with { PushToTalkKey = key, PushToTalkModifiers = modifiers });
@@ -223,14 +235,14 @@ public sealed class ModelPart : UserControl
 
         _dot = new StatusDot { VerticalAlignment = VerticalAlignment.Center };
         _status = Text.BodyStrong(string.Empty);
-        _detail = Text.Muted(string.Empty);
-        _download = new SgButton("Download model", SgButton.Kind.Primary);
+        _detail = Text.Meta(string.Empty);
+        _download = new SgButton("Download the model", SgButton.Kind.Primary, compact: true, icon: Icons.Download);
         _download.Click += (_, _) => _ = ToggleDownloadAsync();
         _gauge = new Gauge { IsVisible = false };
         _gaugeText = Text.Caption(string.Empty);
         _gaugeText.IsVisible = false;
 
-        var openFolder = new SgButton("Open folder", SgButton.Kind.Ghost);
+        var openFolder = new SgButton("Open its folder", SgButton.Kind.Quiet, compact: true, icon: Icons.Folder);
         openFolder.Click += (_, _) => OpenFolder(ModelDownloader.DefaultTarget);
 
         Content = Panels.Column(Tokens.Space.Base,
@@ -265,13 +277,13 @@ public sealed class ModelPart : UserControl
         var located = ParakeetTranscriber.Locate();
         var loaded = _composition.Transcriber?.IsReady == true;
 
-        _dot.Fill = located is null ? Tokens.Brushes.AmberMid : loaded ? Tokens.Brushes.Brand : Tokens.Brushes.BrandMid;
-        _status.Text = located is null ? "Parakeet not installed" : loaded ? "Parakeet ready" : "Parakeet found, loading";
+        _dot.Fill = located is null ? Tokens.Brushes.AmberMid : loaded ? Tokens.Accent.Emerald.Ink : Tokens.Brushes.BrandMid;
+        _status.Text = located is null ? "Parakeet isn't installed yet" : loaded ? "Parakeet is ready" : "Parakeet found, loading";
 
         var size = (ModelDownloader.ApproximateBytes / 1_000_000d).ToString("0", CultureInfo.CurrentCulture);
         _detail.Text = located is not null
             ? $"Loaded from {located}"
-            : $"Windows has no built-in speech engine, so {AppPaths.ProductName} can't transcribe until the Parakeet model is downloaded — about {size} MB, once, from Hugging Face. It runs entirely on this machine afterwards.";
+            : $"Windows has no built-in speech engine, so {AppPaths.ProductName} can't transcribe until the Parakeet model is downloaded: about {size} MB, once, from Hugging Face. It runs entirely on this machine afterwards.";
 
         _download.IsVisible = located is null || _downloading is not null;
     }

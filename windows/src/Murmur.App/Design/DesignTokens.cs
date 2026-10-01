@@ -57,6 +57,83 @@ public static class Tokens
         };
     }
 
+    // ---- The Bible's accents ----
+
+    /// <summary>
+    /// One soft hue: a light fill, the same hue's soft edge and its dark ink. Sidgrove
+    /// Intelligence <c>components/ui-ext/accents.ts</c>.
+    /// </summary>
+    /// <remarks>
+    /// The Bible (29/09/2026): colour carries meaning through small marks, the icon tile, the
+    /// chip, never a stripe or a loud surface. A page is made colourful by giving each section
+    /// its own soft tile hue.
+    /// </remarks>
+    public sealed record Accent(IBrush Fill, IBrush Edge, IBrush Ink)
+    {
+        private static Accent Make(uint fill, uint edge, uint ink) => new(
+            new SolidColorBrush(Rgb(fill)), new SolidColorBrush(Rgb(edge)), new SolidColorBrush(Rgb(ink)));
+
+        /// <summary>Brand periwinkle. <c>ACCENT_BRAND</c>.</summary>
+        public static Accent Brand { get; } = Make(0xECEFFA, 0xD4DAEE, 0x3D4785);
+
+        /// <summary>Settled, done, a fix that worked. <c>ACCENT_EMERALD</c>.</summary>
+        public static Accent Emerald { get; } = Make(0xDCEFE4, 0xA8D4BA, 0x155A31);
+
+        /// <summary>Caution, in progress. <c>ACCENT_AMBER</c>.</summary>
+        public static Accent Amber { get; } = Make(0xFDF3D6, 0xDEC27E, 0x5C4012);
+
+        /// <summary>Recording, live. <c>ACCENT_CRIMSON</c>.</summary>
+        public static Accent Crimson { get; } = Make(0xFBE1E6, 0xE6ABB9, 0x7A1E36);
+
+        /// <summary>Neutral, not started, paused. <c>ACCENT_SLATE</c>.</summary>
+        public static Accent Slate { get; } = Make(0xEEF0F4, 0xCBD1DE, 0x3A4159);
+
+        /// <summary>Pending, read-only, the cloud. <c>ACCENT_INFO</c>.</summary>
+        public static Accent Info { get; } = Make(0xE6EFFF, 0xB8C9EB, 0x1E4A85);
+
+        /// <summary>Blocked, failed. <c>ACCENT_CORAL</c>.</summary>
+        public static Accent Coral { get; } = Make(0xFDE9E3, 0xF0B8A8, 0x8A2F1C);
+
+        /// <summary>The plum tile hue the Bible lists for hubs. <c>--purple</c>.</summary>
+        public static Accent Plum { get; } = Make(0xF3E3EE, 0xD8B8CC, 0x7A3D6F);
+
+        /// <summary>The tile hues a set of unrelated things cycles through, so each gets its own.</summary>
+        public static IReadOnlyList<Accent> Cycle { get; } = [Brand, Emerald, Amber, Info, Plum, Coral, Slate];
+
+        private static Color Rgb(uint hex) => Color.FromRgb((byte)((hex >> 16) & 0xFF), (byte)((hex >> 8) & 0xFF), (byte)(hex & 0xFF));
+    }
+
+    /// <summary>
+    /// The page canvas. Sidgrove Intelligence <c>lib/brand/canvas.ts</c>: a near-white base
+    /// with two faint static tints, periwinkle top right and peach bottom left, the sign-in
+    /// page's hue. No grid, no orbs (the Bible, Part 2 §1).
+    /// </summary>
+    public static class Canvas
+    {
+        /// <summary><c>PRACTICE_BASE</c>.</summary>
+        public static IBrush Base { get; } = new SolidColorBrush(Color.Parse("#f4f5f9"));
+
+        /// <summary>The periwinkle tint, top right. <c>PRACTICE_PRIMARY</c>.</summary>
+        public static IBrush Primary { get; } = new RadialGradientBrush
+        {
+            Center = new RelativePoint(1, 0, RelativeUnit.Relative),
+            GradientOrigin = new RelativePoint(1, 0, RelativeUnit.Relative),
+            RadiusX = new RelativeScalar(0.9, RelativeUnit.Relative),
+            RadiusY = new RelativeScalar(0.8, RelativeUnit.Relative),
+            GradientStops = [new GradientStop(Color.Parse("#2e6874b4"), 0), new GradientStop(Color.Parse("#006874b4"), 1)],
+        };
+
+        /// <summary>The peach hint, bottom left. <c>PRACTICE_SECONDARY</c>.</summary>
+        public static IBrush Secondary { get; } = new RadialGradientBrush
+        {
+            Center = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientOrigin = new RelativePoint(0, 1, RelativeUnit.Relative),
+            RadiusX = new RelativeScalar(0.75, RelativeUnit.Relative),
+            RadiusY = new RelativeScalar(0.7, RelativeUnit.Relative),
+            GradientStops = [new GradientStop(Color.Parse("#3df2b8a4"), 0), new GradientStop(Color.Parse("#00f2b8a4"), 1)],
+        };
+    }
+
     // ---- Colour ----
 
     /// <summary>The palette. Names follow the <c>T</c> object and the CSS variables.</summary>
@@ -130,6 +207,12 @@ public static class Tokens
 
         /// <summary>Cards. Opaque white, always.</summary>
         public static Color Card => Rgb(0xFFFFFF);
+
+        /// <summary>The segmented control's bed. <c>PILL_NAV_BED</c>.</summary>
+        public static Color ToggleBed => Rgb(0xE6E9F1);
+
+        /// <summary>Column headers and group labels. <c>text-col</c>.</summary>
+        public static Color ColHeader => Rgb(0x4A4F6A);
 
         /// <summary>Text on brand-strong.</summary>
         public static Color OnBrand => Rgb(0xFFFFFF);
@@ -227,6 +310,15 @@ public static class Tokens
 
         /// <inheritdoc cref="Colors.OnBrand"/>
         public static IBrush OnBrand { get; } = new SolidColorBrush(Colors.OnBrand);
+
+        /// <summary>The segmented control's bed.</summary>
+        public static IBrush ToggleBed { get; } = new SolidColorBrush(Colors.ToggleBed);
+
+        /// <summary>Column headers and group labels.</summary>
+        public static IBrush ColHeader { get; } = new SolidColorBrush(Colors.ColHeader);
+
+        /// <summary>A third-party mark's frame: brand at 12%. <c>ClientAvatar</c>.</summary>
+        public static IBrush MarkEdge { get; } = new SolidColorBrush(Colors.Brand, Opacity.Hairline);
 
         /// <summary>Transparent.</summary>
         public static IBrush None { get; } = Avalonia.Media.Brushes.Transparent;
@@ -369,8 +461,17 @@ public static class Tokens
         /// <summary>Pill nav labels and ghost buttons. 12px.</summary>
         public const double Small = 12;
 
-        /// <summary>Primary buttons and body. 14px.</summary>
+        /// <summary>Body. 14px.</summary>
         public const double Body = 14;
+
+        /// <summary>A button's label. <c>PillButton</c> md: 12px 600.</summary>
+        public const double Button = 12.5;
+
+        /// <summary>A compact button's label. <c>PillButton</c> sm.</summary>
+        public const double ButtonSmall = 12;
+
+        /// <summary>A section switcher's labels.</summary>
+        public const double Tab = 13;
 
         /// <summary>Base text, kit inputs. 14px.</summary>
         public const double Base = 14;
@@ -386,6 +487,12 @@ public static class Tokens
 
         /// <summary>A page title in Very Vogue Text. <c>.sg-hero-title</c>: 32px.</summary>
         public const double Title = 32;
+
+        /// <summary>The page title under 640px. <c>--sg-title-size</c> narrow.</summary>
+        public const double TitleNarrow = 26;
+
+        /// <summary>Group and column labels. <c>text-col</c>.</summary>
+        public const double Label = 12.5;
 
         /// <summary>The caption-strip title in Very Vogue Text.</summary>
         public const double CaptionTitle = 22;
@@ -490,7 +597,16 @@ public static class Tokens
         /// <summary>Top-level cards and panels on the site. <c>--r-card</c>.</summary>
         public const double CardLarge = 20;
 
-        /// <summary>Buttons, badges, nav pills, switches.</summary>
+        /// <summary>Buttons, chips, tiles and the segmented track. <c>--radius-md</c>.</summary>
+        public const double Button = 10;
+
+        /// <summary>The active segment inside the track.</summary>
+        public const double Segment = 7;
+
+        /// <summary>The window's inner frame, a little looser than the cards so the curves nest. <c>--radius-xl</c>.</summary>
+        public const double Frame = 16;
+
+        /// <summary>Badges and switches.</summary>
         public const double Pill = 999;
 
         /// <summary>Listening bars.</summary>
@@ -583,6 +699,12 @@ public static class Tokens
         /// <summary>Smallest main window.</summary>
         public const double MainMinWidth = 640;
 
+        /// <summary>The status card's words: the state, then the shortcut's keycaps.</summary>
+        public const double StatusWordsHeight = 48;
+
+        /// <summary>Below this width the page title drops to its narrow size.</summary>
+        public const double NarrowTitleBelow = 640;
+
         /// <summary>Smallest main window height.</summary>
         public const double MainMinHeight = 480;
 
@@ -603,20 +725,26 @@ public static class Tokens
         /// <summary>Caption glyph buttons.</summary>
         public const double CaptionButton = 28;
 
-        /// <summary>Primary and ghost pill height: 9px padding around 13px text.</summary>
-        public const double ButtonHeight = 34;
+        /// <summary>A button. <c>PillButton</c> md: <c>h-9</c>.</summary>
+        public const double ButtonHeight = 36;
 
-        /// <summary>Compact pill height: the kit's <c>h-7</c>.</summary>
-        public const double ButtonHeightSmall = 28;
+        /// <summary>A compact button. <c>PillButton</c> sm and <c>HeaderAction</c>: <c>h-8</c>.</summary>
+        public const double ButtonHeightSmall = 32;
+
+        /// <summary>A segment inside the track, the track being this plus its inset.</summary>
+        public const double SegmentHeight = 28;
+
+        /// <summary>The count chip beside a section's name.</summary>
+        public const double CountChipHeight = 18;
 
         /// <summary>The hero (record) pill, the site's <c>.button</c> scale.</summary>
         public const double HeroButtonHeight = 44;
 
-        /// <summary>Primary pill horizontal padding. <c>9px 18px</c>.</summary>
-        public const double ButtonPadX = 18;
+        /// <summary>Button horizontal padding. <c>px-3.5</c>.</summary>
+        public const double ButtonPadX = 14;
 
-        /// <summary>Compact pill horizontal padding. <c>8px 14px</c>.</summary>
-        public const double ButtonPadXSmall = 14;
+        /// <summary>Compact button horizontal padding. <c>px-3</c>.</summary>
+        public const double ButtonPadXSmall = 12;
 
         /// <summary>Hero pill horizontal padding.</summary>
         public const double HeroPadX = 24;
@@ -676,6 +804,54 @@ public static class Tokens
         public const double OverlayBarsHeight = 36;
         /// <summary>Display gain for quiet microphone levels; does not change captured audio.</summary>
         public const double OverlayLevelGain = 4;
+
+        /// <summary>The icon tile ramp: 22 inline, 26 a row mark, 32 a section or app mark, 36 a lead. <c>IconTile</c>.</summary>
+        public const double TileSmall = 22;
+
+        /// <inheritdoc cref="TileSmall"/>
+        public const double TileRow = 26;
+
+        /// <inheritdoc cref="TileSmall"/>
+        public const double Tile = 32;
+
+        /// <inheritdoc cref="TileSmall"/>
+        public const double TileLead = 36;
+
+        /// <summary>Chips: a declared height, never padding-derived. <c>CHIP_BASE</c>.</summary>
+        public const double ChipHeight = 22;
+
+        /// <summary>Chip horizontal padding.</summary>
+        public const double ChipPadX = 8;
+
+        /// <summary>A keycap in a shortcut.</summary>
+        public const double KeyCapHeight = 24;
+
+        /// <summary>The label column of a settings form.</summary>
+        public const double LabelColumn = 240;
+
+        /// <summary>The dictionary's word column, before the ways it was heard.</summary>
+        public const double WordColumn = 180;
+
+        /// <summary>A field holding a key or a URL: as wide as what it holds, never the space it sits in.</summary>
+        public const double FieldWide = 380;
+
+        /// <summary>A field holding a word or two.</summary>
+        public const double FieldShort = 200;
+
+        /// <summary>A field holding a list of words.</summary>
+        public const double FieldList = 380;
+
+        /// <summary>A field holding a paragraph of the user's own words.</summary>
+        public const double FieldTallWidth = 460;
+
+        /// <summary>The history and dictionary search.</summary>
+        public const double SearchWidth = 260;
+
+        /// <summary>The search in a narrow window.</summary>
+        public const double SearchWidthNarrow = 170;
+
+        /// <summary>Below this view width the search narrows.</summary>
+        public const double NarrowSearchBelow = 760;
 
         /// <summary>Room around the overlay pill for its shadow.</summary>
         public const double OverlayShadowRoom = 28;

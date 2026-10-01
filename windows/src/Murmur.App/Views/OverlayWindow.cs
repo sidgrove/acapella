@@ -72,7 +72,7 @@ public sealed class OverlayWindow : Window
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
         FontFamily = Tokens.Fonts.Sans;
 
-        _dot = new StatusDot { Fill = Tokens.Brushes.BrandStrong, IsLive = true, VerticalAlignment = VerticalAlignment.Center };
+        _dot = new StatusDot { Fill = Tokens.Accent.Crimson.Ink, IsLive = true, VerticalAlignment = VerticalAlignment.Center };
         _bars = new LevelBars(Tokens.Layout.BarsCount, Tokens.Layout.OverlayBarsHeight) { VerticalAlignment = VerticalAlignment.Center };
         _state = Text.BodyStrong("Listening");
         _state.TextWrapping = TextWrapping.NoWrap;
@@ -138,7 +138,7 @@ public sealed class OverlayWindow : Window
             Background = Tokens.Brushes.Card,
             BorderBrush = Tokens.Brushes.CardBorder,
             BorderThickness = new Thickness(Tokens.Border.Hairline),
-            CornerRadius = new CornerRadius(Tokens.Radius.CardLarge),
+            CornerRadius = new CornerRadius(Tokens.Radius.Frame),
             BoxShadow = Tokens.Shadow.Lift,
             Height = Tokens.Layout.OverlayHeight,
             Padding = new Thickness(Tokens.Space.Base),
@@ -197,8 +197,9 @@ public sealed class OverlayWindow : Window
         _dot.IsVisible = true;
         _bars.IsLive = recording;
         _bars.Level = Math.Clamp(level * Tokens.Layout.OverlayLevelGain, 0, 1);
-        _dot.Fill = recording ? Tokens.Brushes.BrandStrong : Tokens.Brushes.AmberMid;
-        _state.Text = recording ? "Listening" : cleaning ? "Cleaning up" : "Working on it";
+        // The same words and hues as the status card: crimson while it listens, amber while it works.
+        _dot.Fill = recording ? Tokens.Accent.Crimson.Ink : Tokens.Brushes.AmberMid;
+        _state.Text = recording ? "Listening" : cleaning ? "Tidying up" : "Writing it out";
         _counter.Text = counter;
 
         var tail = Tail(preview);

@@ -1,6 +1,8 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
@@ -12,9 +14,16 @@ namespace Murmur.App.Views;
 /// The dictionary: add, edit, delete, search.
 /// </summary>
 /// <remarks>
-/// Both entry kinds live in one list — they are two shapes of the same idea, and you want to
-/// see everything you have taught it at once. A correction shows "heard → written"; a word is
-/// just the word. Click a row to edit it.
+/// <para>
+/// One row per word it writes, with every way it has been misheard as a chip beside it, so
+/// "git pull" shows git pool, get pole and gitpool together under it, and a long list reads
+/// like an index rather than in the order it was taught. Both entry kinds live in the one
+/// list: they are two shapes of the same idea.
+/// </para>
+/// <para>
+/// Clicking a word or a chip opens it; switching an entry off and deleting it happen there,
+/// so eighty rows don't each carry a switch and a delete button.
+/// </para>
 /// </remarks>
 public sealed class DictionaryView : UserControl
 {
@@ -22,7 +31,7 @@ public sealed class DictionaryView : UserControl
     private readonly SuggestionStore? _suggestions;
     private readonly TextBox _search;
     private readonly StackPanel _list;
-    private readonly TextBlock _count;
+    private readonly WrapPanel _summary;
 
     /// <summary>Builds the view over <paramref name="file"/>, with <paramref name="suggestions"/> from the user's edits shown above it.</summary>
     public DictionaryView(DictionaryFile file, SuggestionStore? suggestions = null)
@@ -30,26 +39,27 @@ public sealed class DictionaryView : UserControl
         _file = file;
         _suggestions = suggestions;
 
-        _search = Field.Search("Search dictionary");
+        _search = Field.Search("Search");
         _search.TextChanged += (_, _) => Refresh();
-        _search.Width = Tokens.Layout.ContentMaxWidth / 3;
+        _search.Width = Tokens.Layout.SearchWidth;
+        SizeChanged += (_, e) => _search.Width = e.NewSize.Width < Tokens.Layout.NarrowSearchBelow ? Tokens.Layout.SearchWidthNarrow : Tokens.Layout.SearchWidth;
 
-        var add = new SgButton("Add word", SgButton.Kind.Primary);
+        var add = new SgButton("Add word", SgButton.Kind.Primary, compact: true, icon: Icons.Plus);
         add.Click += (_, _) => ShowEditor(null);
 
-        _list = new StackPanel { Spacing = Tokens.Space.Snug, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
-        _count = Text.Caption(string.Empty);
-
-        var open = new SgButton("Open dictionary.txt", SgButton.Kind.Quiet, compact: true);
+        var open = new SgButton(string.Empty, SgButton.Kind.Quiet, compact: true, icon: Icons.File) { Width = Tokens.Layout.ButtonHeightSmall, Padding = new Thickness(0) };
+        ToolTip.SetTip(open, "Open dictionary.txt to edit it by hand");
         open.Click += (_, _) => OpenInEditor(_file.FilePath);
+
+        _list = new StackPanel { Spacing = Tokens.Space.Base, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
+        _summary = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center };
 
         Content = new DockPanel
         {
             Children =
             {
-                Panels.Docked(Gutter(Panels.Split(new Badge("Dictionary"), Panels.Row(Tokens.Space.Base, _search, add))), Dock.Top),
-                Panels.Docked(Gutter(Panels.Split(_count, open)), Dock.Bottom),
-                new ScrollViewer { Margin = new Thickness(0, Tokens.Space.Roomy, 0, Tokens.Space.Snug), Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto },
+                Panels.Docked(Gutter(Panels.Split(_summary, Panels.Row(Tokens.Space.Snug, _search, open, add))), Dock.Top),
+                new ScrollViewer { Margin = new Thickness(0, Tokens.Space.Roomy, 0, 0), Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto },
             },
         };
 
@@ -81,47 +91,49 @@ public sealed class DictionaryView : UserControl
     /// <summary>Opens the editor on a blank entry.</summary>
     public void AddEntry() => ShowEditor(null);
 
+    /// <summary>The entries grouped by what they write, sorted as an index: the shape of the list.</summary>
+    public static IReadOnlyList<(string Write, IReadOnlyList<DictionaryEntry> Entries)> Groups(IEnumerable<DictionaryEntry> entries) =>
+        [.. entries
+            .GroupBy(e => e.Write.Trim(), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(g => ((g.FirstOrDefault(e => e.Kind == EntryKind.Term) ?? g.First()).Write.Trim(),
+                (IReadOnlyList<DictionaryEntry>)[.. g.OrderBy(e => e.Kind).ThenBy(e => e.Hear, StringComparer.OrdinalIgnoreCase)]))];
+
     private void Refresh()
     {
-        // Sorted by what gets written, so every way it mishears "git pull" sits together
-        // under it, and a long list reads like an index rather than in the order it was taught.
-        var entries = _file.Search(_search.Text ?? string.Empty)
-            .OrderBy(e => e.Write, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(e => e.Kind)
-            .ThenBy(e => e.Hear, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var groups = Groups(_file.Search(_search.Text ?? string.Empty));
 
         _list.Children.Clear();
         if (BuildSuggestions() is { } suggested) _list.Children.Add(suggested);
         if (BuildLearnt() is { } learnt) _list.Children.Add(learnt);
+
         var words = _file.Entries.Count(e => e.Kind == EntryKind.Term);
         var fixes = _file.Entries.Count - words;
-        _count.Text = $"{words} {(words == 1 ? "word" : "words")}, {fixes} {(fixes == 1 ? "correction" : "corrections")}  ·  edit the file by hand if you like";
+        _summary.Children.Clear();
+        _summary.Children.Add(new Chip(words == 1 ? "1 word" : string.Create(CultureInfo.CurrentCulture, $"{words:N0} words"), Tokens.Accent.Brand, Icons.Book));
+        _summary.Children.Add(new Chip(fixes == 1 ? "1 correction" : string.Create(CultureInfo.CurrentCulture, $"{fixes:N0} corrections"), Tokens.Accent.Emerald, Icons.Check));
 
-        if (entries.Count == 0)
+        if (groups.Count == 0)
         {
-            _list.Children.Add(Panels.EmptyState(
-                _file.Entries.Count == 0 ? "📖" : "🔍",
-                _file.Entries.Count == 0 ? "Dictionary is empty" : "No matches",
-                _file.Entries.Count == 0 ? "Add names, jargon and product names it keeps getting wrong." : "Try a different search."));
+            _list.Children.Add(_file.Entries.Count == 0
+                ? Panels.EmptyState(Icons.Book, Tokens.Accent.Emerald, "Nothing in the dictionary yet. Add the names and jargon it keeps getting wrong.")
+                : Panels.EmptyState(Icons.Search, Tokens.Accent.Slate, "Nothing matches that. Try another word."));
             return;
         }
 
-        // One panel, one row per entry and a hairline between them: at eighty-odd entries a
+        // One panel, one row per word and a hairline between them: at eighty-odd entries a
         // card each made the list several screens long and hard to scan.
         var rows = new StackPanel();
-        for (var i = 0; i < entries.Count; i++)
+        for (var i = 0; i < groups.Count; i++)
         {
-            if (i > 0) rows.Children.Add(new Border { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) });
-            rows.Children.Add(BuildRow(entries[i]));
+            if (i > 0) rows.Children.Add(Rule());
+            rows.Children.Add(BuildRow(groups[i].Write, groups[i].Entries));
         }
 
-        var panel = Card.Standard(rows, Tokens.Space.Snug);
-        panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
-        panel.BorderBrush = Tokens.Brushes.Line;
-        panel.BoxShadow = Tokens.Shadow.Soft;
-        _list.Children.Add(panel);
+        _list.Children.Add(Card.Standard(rows, Tokens.Space.Snug));
     }
+
+    private static Border Rule() => new() { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) };
 
     /// <summary>
     /// The fixes the user made by hand, offered as corrections, above the dictionary itself.
@@ -133,44 +145,35 @@ public sealed class DictionaryView : UserControl
         var pending = Pending(store, _file);
         if (pending.Count == 0) return null;
 
-        var heading = Panels.Column(Tokens.Space.Hair,
-            Text.BodyStrong("Suggested from your edits"),
-            Text.Muted("You fixed these by hand after they were typed. Add one and it's fixed for you next time."));
-        heading.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Snug, Tokens.Space.Base, Tokens.Space.Snug);
-
-        var rows = new StackPanel { Children = { heading } };
+        var rows = new StackPanel
+        {
+            Children =
+            {
+                Pad(SectionHead.Make(Icons.Sparkles, Tokens.Accent.Amber, "Suggested from your edits",
+                    "You fixed these by hand after they were typed. Add one and it's put right for you next time.",
+                    new Chip(pending.Count.ToString(CultureInfo.CurrentCulture), Tokens.Accent.Amber))),
+            },
+        };
         foreach (var suggestion in pending)
         {
-            rows.Children.Add(new Border { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) });
+            rows.Children.Add(Rule());
 
             var detail = suggestion.Count > 1 ? $"fixed {suggestion.Count} times" : "fixed once";
             if (suggestion.Example is { Length: > 0 } example) detail = $"“{example}”  ·  {detail}";
-            var left = Panels.Column(Tokens.Space.Hair,
-                Panels.Row(Tokens.Space.Snug, Text.Muted(suggestion.Hear), Text.Caption("→"), Text.BodyStrong(suggestion.Write)),
-                Text.Caption(detail));
 
             var dismiss = new SgButton("Not this", SgButton.Kind.Quiet, compact: true);
             dismiss.Click += (_, _) => store.Dismiss(suggestion.Id);
-            var add = new SgButton("Add", SgButton.Kind.Primary, compact: true);
+            var add = new SgButton("Add", SgButton.Kind.Primary, compact: true, icon: Icons.Plus);
             add.Click += (_, _) =>
             {
                 _file.Add(DictionaryEntry.Correction(suggestion.Hear, suggestion.Write));
                 store.Remove(suggestion.Id);
             };
 
-            rows.Children.Add(new Border
-            {
-                Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
-                Child = Panels.Split(left, Panels.Row(Tokens.Space.Snug, dismiss, add)),
-            });
+            rows.Children.Add(Pad(Panels.Split(Fix(suggestion.Hear, suggestion.Write, detail), Panels.Row(Tokens.Space.Tight, dismiss, add))));
         }
 
-        var panel = Card.Standard(rows, Tokens.Space.Snug);
-        panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
-        panel.BorderBrush = Tokens.Brushes.PillBorder;
-        panel.BoxShadow = Tokens.Shadow.Soft;
-        panel.Margin = new Thickness(0, 0, 0, Tokens.Space.Base);
-        return panel;
+        return Card.Standard(rows, Tokens.Space.Snug);
     }
 
     /// <summary>How long a fix added on its own stays listed with its Undo.</summary>
@@ -191,73 +194,101 @@ public sealed class DictionaryView : UserControl
         var learnt = RecentlyLearnt(store, _file, DateTimeOffset.Now);
         if (learnt.Count == 0) return null;
 
-        var heading = Panels.Column(Tokens.Space.Hair,
-            Text.BodyStrong("Learnt from your edits"),
-            Text.Muted("Added by themselves because Jev was sure they were mishearings, or you made the same fix twice. Undo one and it's never learnt again."));
-        heading.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Snug, Tokens.Space.Base, Tokens.Space.Snug);
-
-        var rows = new StackPanel { Children = { heading } };
+        var rows = new StackPanel
+        {
+            Children =
+            {
+                Pad(SectionHead.Make(Icons.Learn, Tokens.Accent.Emerald, "Learnt by itself",
+                    "Added because Jev was sure they were mishearings, because you made the same fix twice, or because you fixed a word you hardly ever say. Undo one and it's never learnt again.")),
+            },
+        };
         foreach (var fix in learnt)
         {
-            rows.Children.Add(new Border { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) });
+            rows.Children.Add(Rule());
 
-            var when = fix.LearntAt is { } at ? at.ToLocalTime().ToString("d MMM", System.Globalization.CultureInfo.CurrentCulture) : string.Empty;
+            var when = fix.LearntAt is { } at ? at.ToLocalTime().ToString("dd/MM", CultureInfo.InvariantCulture) : string.Empty;
             var detail = $"{when}  ·  {fix.LearntBecause}";
             if (fix.Example is { Length: > 0 } example) detail = $"“{example}”  ·  {detail}";
-            var left = Panels.Column(Tokens.Space.Hair,
-                Panels.Row(Tokens.Space.Snug, Text.Muted(fix.Hear), Text.Caption("→"), Text.BodyStrong(fix.Write)),
-                Text.Caption(detail));
 
-            var undo = new SgButton("Undo", SgButton.Kind.Quiet, compact: true);
+            var undo = new SgButton("Undo", SgButton.Kind.Quiet, compact: true, icon: Icons.Undo);
             undo.Click += (_, _) => EditLearner.Undo(fix, _file, store);
 
-            rows.Children.Add(new Border
-            {
-                Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
-                Child = Panels.Split(left, undo),
-            });
+            rows.Children.Add(Pad(Panels.Split(Fix(fix.Hear, fix.Write, detail), undo)));
         }
 
-        var panel = Card.Standard(rows, Tokens.Space.Snug);
-        panel.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
-        panel.BorderBrush = Tokens.Brushes.Line;
-        panel.BoxShadow = Tokens.Shadow.Soft;
-        panel.Margin = new Thickness(0, 0, 0, Tokens.Space.Base);
-        return panel;
+        return Card.Standard(rows, Tokens.Space.Snug);
     }
 
-    private Border BuildRow(DictionaryEntry entry)
+    private static Border Pad(Control content) => new() { Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug), Child = content };
+
+    /// <summary>A fix: what was heard, struck through, then what it becomes, and a line of where it came from.</summary>
+    private static StackPanel Fix(string hear, string write, string detail)
     {
-        var toggle = new Switch { IsChecked = entry.IsEnabled, VerticalAlignment = VerticalAlignment.Center };
-        toggle.IsCheckedChanged += (_, _) => _file.Update(entry with { IsEnabled = toggle.IsChecked == true });
+        var heard = Text.Muted(hear);
+        heard.TextDecorations = TextDecorations.Strikethrough;
+        var arrow = Text.Caption("→");
+        arrow.VerticalAlignment = VerticalAlignment.Center;
+        var caption = Text.Caption(detail);
+        caption.TextTrimming = TextTrimming.CharacterEllipsis;
+        caption.TextWrapping = TextWrapping.NoWrap;
+        return Panels.Column(Tokens.Space.Hair, Panels.Row(Tokens.Space.Snug, heard, arrow, Text.BodyStrong(write)), caption);
+    }
 
-        // Only the row under the pointer offers Delete; eighty rose buttons down one column
-        // drowned out the words.
-        var delete = new SgButton("Delete", SgButton.Kind.Danger, compact: true) { IsVisible = false };
-        delete.Click += (_, _) => _file.Remove(entry.Id);
+    /// <summary>One word it writes, and every way it has been heard, as chips.</summary>
+    private Border BuildRow(string write, IReadOnlyList<DictionaryEntry> entries)
+    {
+        var term = entries.FirstOrDefault(e => e.Kind == EntryKind.Term);
+        var heard = entries.Where(e => e.Kind == EntryKind.Correction).ToList();
+        var allOff = entries.All(e => !e.IsEnabled);
 
-        Control text = entry.Kind == EntryKind.Correction
-            ? Panels.Row(Tokens.Space.Snug, Text.Muted(entry.Hear), Text.Caption("→"), Text.BodyStrong(entry.Write))
-            : Text.BodyStrong(entry.Write);
-        text.Opacity = entry.IsEnabled ? 1 : Tokens.Opacity.Disabled;
+        var word = Text.BodyStrong(write);
+        word.VerticalAlignment = VerticalAlignment.Center;
+        word.Opacity = allOff ? Tokens.Opacity.Disabled : 1;
 
-        var right = Panels.Row(Tokens.Space.Snug, delete, toggle);
-        right.MinHeight = Tokens.Layout.ButtonHeightSmall;
+        var chips = new WrapPanel { ItemSpacing = Tokens.Space.Chip, LineSpacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var entry in heard)
+        {
+            var chip = new Chip(entry.Hear, Tokens.Accent.Slate)
+            {
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                Opacity = entry.IsEnabled ? 1 : Tokens.Opacity.Disabled,
+            };
+            ToolTip.SetTip(chip, entry.IsEnabled ? $"Heard as “{entry.Hear}”. Click to change it." : $"“{entry.Hear}” is switched off. Click to change it.");
+            var target = entry;
+            chip.PointerReleased += (_, e) =>
+            {
+                if (e.InitialPressMouseButton != Avalonia.Input.MouseButton.Left) return;
+                e.Handled = true;
+                ShowEditor(target);
+            };
+            chips.Children.Add(chip);
+        }
+        if (entries.Any(e => !e.IsEnabled)) chips.Children.Add(new Chip("Off", Tokens.Accent.Amber));
 
+        var left = new Grid { ColumnDefinitions = new ColumnDefinitions($"{Tokens.Layout.WordColumn},*") };
+        Grid.SetColumn(chips, 1);
+        left.Children.Add(word);
+        left.Children.Add(chips);
+
+        var chevron = new Glyph(Icons.Pen, 13, Tokens.Brushes.Faint) { Opacity = 0 };
         var row = new Border
         {
             Background = Tokens.Brushes.None,
-            CornerRadius = new CornerRadius(Tokens.Radius.Control),
-            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Tight),
+            CornerRadius = new CornerRadius(Tokens.Radius.Button),
+            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
+            MinHeight = Tokens.Layout.ButtonHeightSmall + Tokens.Space.Snug,
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
-            Child = Panels.Split(text, right),
+            Child = Panels.Split(left, chevron),
         };
-        row.PointerEntered += (_, _) => { row.Background = Tokens.Brushes.Surface; delete.IsVisible = true; };
-        row.PointerExited += (_, _) => { row.Background = Tokens.Brushes.None; delete.IsVisible = false; };
+        row.PointerEntered += (_, _) => { row.Background = Tokens.Brushes.Surface; chevron.Opacity = 1; };
+        row.PointerExited += (_, _) => { row.Background = Tokens.Brushes.None; chevron.Opacity = 0; };
 
-        // The switch and Delete mark their own clicks handled, so this only fires for the rest
-        // of the row.
-        row.PointerReleased += (_, e) => { if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Left) ShowEditor(entry); };
+        // A chip opens its own correction; the rest of the row opens the word itself, or its
+        // only correction when it has no entry of its own.
+        row.PointerReleased += (_, e) =>
+        {
+            if (e.InitialPressMouseButton == Avalonia.Input.MouseButton.Left) ShowEditor(term ?? entries[0]);
+        };
         return row;
     }
 
@@ -267,6 +298,7 @@ public sealed class DictionaryView : UserControl
 
         var editor = new DictionaryEditorWindow(entry);
         editor.Saved += (_, saved) => { if (entry is null) _file.Add(saved); else _file.Update(saved); };
+        editor.Deleted += (_, id) => _file.Remove(id);
         _ = editor.ShowDialog(owner);
     }
 
@@ -292,7 +324,7 @@ public sealed class DictionaryView : UserControl
     }
 }
 
-/// <summary>Add or edit one dictionary entry, with the false-positive warning shown live.</summary>
+/// <summary>Add, edit, switch off or delete one dictionary entry, with the false-positive warning shown live.</summary>
 public sealed class DictionaryEditorWindow : ShellWindow
 {
     private readonly Segmented _kind;
@@ -301,20 +333,22 @@ public sealed class DictionaryEditorWindow : ShellWindow
     private readonly StackPanel _hearField;
     private readonly TextBlock _writeLabel;
     private readonly StackPanel _warnings;
+    private readonly Controls.Switch _on;
     private readonly SgButton _save;
     private readonly Guid _id;
-    private readonly bool _wasEnabled;
 
     private EntryKind _entryKind;
 
     /// <summary>Raised when the user saves.</summary>
     public event EventHandler<DictionaryEntry>? Saved;
 
+    /// <summary>Raised with the entry's id when the user deletes it.</summary>
+    public event EventHandler<Guid>? Deleted;
+
     /// <summary>Creates the editor for a new or existing entry.</summary>
     public DictionaryEditorWindow(DictionaryEntry? entry)
     {
         _id = entry?.Id ?? Guid.NewGuid();
-        _wasEnabled = entry?.IsEnabled ?? true;
         _entryKind = entry?.Kind ?? EntryKind.Term;
 
         Title = entry is null ? "New entry" : "Edit entry";
@@ -333,22 +367,28 @@ public sealed class DictionaryEditorWindow : ShellWindow
         _write.TextChanged += (_, _) => Revalidate();
 
         _hearField = Panels.Labelled("When it hears", _hear);
-        _writeLabel = Text.Eyebrow("Word or phrase");
+        _writeLabel = Text.Label("Word or phrase");
         _warnings = new StackPanel { Spacing = Tokens.Space.Snug };
+
+        _on = new Controls.Switch { IsChecked = entry?.IsEnabled ?? true, VerticalAlignment = VerticalAlignment.Center };
+        var onRow = Panels.Split(Text.Body("In use"), _on);
 
         var cancel = new SgButton("Cancel", SgButton.Kind.Ghost);
         cancel.Click += (_, _) => Close();
-        _save = new SgButton("Save", SgButton.Kind.Primary);
+        _save = new SgButton("Save", SgButton.Kind.Primary, icon: Icons.Check);
         _save.Click += (_, _) => { if (IsValid) { Saved?.Invoke(this, Draft); Close(); } };
 
-        var buttons = Panels.Row(Tokens.Space.Snug, cancel, _save);
-        buttons.HorizontalAlignment = HorizontalAlignment.Right;
+        var delete = new SgButton("Delete", SgButton.Kind.Danger, icon: Icons.Trash) { IsVisible = entry is not null };
+        delete.Click += (_, _) => { Deleted?.Invoke(this, _id); Close(); };
+
+        var buttons = Panels.Split(delete, Panels.Row(Tokens.Space.Snug, cancel, _save));
 
         var body = Panels.Column(Tokens.Space.Roomy,
             _kind,
             _hearField,
             Panels.Column(Tokens.Space.Chip, _writeLabel, _write),
             _warnings,
+            onRow,
             buttons);
         body.Margin = new Thickness(Tokens.Space.Wide, Tokens.Space.Snug, Tokens.Space.Wide, Tokens.Space.Wide);
 
@@ -362,7 +402,7 @@ public sealed class DictionaryEditorWindow : ShellWindow
         Kind = _entryKind,
         Write = (_write.Text ?? string.Empty).Trim(),
         Hear = _entryKind == EntryKind.Correction ? (_hear.Text ?? string.Empty).Trim() : string.Empty,
-        IsEnabled = _wasEnabled,
+        IsEnabled = _on.IsChecked == true,
     };
 
     private bool IsValid => Draft.Write.Length > 0 && (_entryKind == EntryKind.Term || Draft.Hear.Length > 0);
@@ -371,7 +411,7 @@ public sealed class DictionaryEditorWindow : ShellWindow
     {
         _entryKind = kind;
         _hearField.IsVisible = kind == EntryKind.Correction;
-        _writeLabel.Text = (kind == EntryKind.Correction ? "Write instead" : "Word or phrase").ToUpperInvariant();
+        _writeLabel.Text = kind == EntryKind.Correction ? "Write instead" : "Word or phrase";
         Revalidate();
     }
 
@@ -381,8 +421,17 @@ public sealed class DictionaryEditorWindow : ShellWindow
         foreach (var warning in DictionaryWarning.Check(Draft))
         {
             var text = Text.Body(warning.Message);
-            text.Foreground = Tokens.Brushes.Amber;
-            _warnings.Children.Add(Card.Notice(text, Tokens.Brushes.AmberLight, new Avalonia.Media.SolidColorBrush(Tokens.Colors.AmberMid, Tokens.Opacity.FocusBorder)));
+            text.Foreground = Tokens.Accent.Amber.Ink;
+            text.VerticalAlignment = VerticalAlignment.Center;
+            var line = Panels.Row(Tokens.Space.Snug, new Glyph(Icons.Alert, 15, Tokens.Accent.Amber.Ink), text);
+            text.MaxWidth = Tokens.Layout.DialogWidth - 2 * Tokens.Space.Wide - 4 * Tokens.Space.Base;
+            _warnings.Children.Add(new Border
+            {
+                Background = Tokens.Accent.Amber.Fill,
+                CornerRadius = new CornerRadius(Tokens.Radius.Button),
+                Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
+                Child = line,
+            });
         }
 
         _save.IsEnabled = IsValid;

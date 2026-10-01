@@ -16,11 +16,11 @@ internal static class Panels
         return control;
     }
 
-    /// <summary>An eyebrow above a control.</summary>
+    /// <summary>A label above a control, for a dialog where the form is narrow.</summary>
     public static StackPanel Labelled(string label, Control content) => new()
     {
         Spacing = Tokens.Space.Chip,
-        Children = { Text.Eyebrow(label), content },
+        Children = { Text.Label(label), content },
     };
 
     /// <summary>A row with content on the left and actions on the right.</summary>
@@ -48,52 +48,68 @@ internal static class Panels
         return column;
     }
 
-    /// <summary>A section: heading, optional description, then the body.</summary>
-    public static StackPanel Section(string heading, string? description, Control body)
+    /// <summary>
+    /// A card with its header: the section's tinted tile, its name and a hint carrying what it
+    /// is for, then the body. Never a description sentence under the title.
+    /// </summary>
+    public static Border SettingsCard(string icon, Tokens.Accent accent, string title, string? tip, Control body)
     {
-        var column = Column(Tokens.Space.Roomy, Column(Tokens.Space.Tight, Text.Heading(heading)));
-        if (description is not null) ((StackPanel)column.Children[0]).Children.Add(Text.Muted(description));
-        column.Children.Add(body);
-        return column;
+        var card = Card.Standard(Column(Tokens.Space.Wide, SectionHead.Make(icon, accent, title, tip), body));
+        return card;
     }
 
-    /// <summary>A setting row: label and helper on the left, a switch on the right.</summary>
+    /// <summary>
+    /// A setting that is on or off: the label, a hint with the detail for anyone who wants it,
+    /// and the switch on the right.
+    /// </summary>
     public static DockPanel SwitchRow(string label, string? helper, bool value, Action<bool> onChange)
     {
         var toggle = new Switch { IsChecked = value };
         toggle.IsCheckedChanged += (_, _) => onChange(toggle.IsChecked == true);
 
-        var text = Column(Tokens.Space.Hair, Text.Body(label));
-        if (helper is not null) text.Children.Add(Text.Muted(helper));
+        var name = Text.Body(label);
+        name.VerticalAlignment = VerticalAlignment.Center;
+        var text = Row(Tokens.Space.Chip, name);
+        if (helper is not null) text.Children.Add(Hint.Make(helper));
         text.Margin = new Thickness(0, 0, Tokens.Space.Wide, 0);
 
         return Split(text, toggle);
     }
 
-    /// <summary>The empty-state card. <c>.sg-empty</c>: white, centred, a title in the serif.</summary>
-    public static Control EmptyState(string emoji, string label, string detail)
+    /// <summary>
+    /// A field in a form: the label in a fixed column with its control beside it, the control
+    /// only as wide as what it holds.
+    /// </summary>
+    public static Grid FieldRow(string label, string? tip, Control control)
     {
-        var title = Text.Title(label);
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        title.TextAlignment = Avalonia.Media.TextAlignment.Center;
+        var name = Text.Body(label);
+        name.VerticalAlignment = VerticalAlignment.Center;
+        var left = Row(Tokens.Space.Chip, name);
+        if (tip is not null) left.Children.Add(Hint.Make(tip));
+        left.VerticalAlignment = control is TextBox { AcceptsReturn: true } ? VerticalAlignment.Top : VerticalAlignment.Center;
+        left.Margin = new Thickness(0, 0, Tokens.Space.Roomy, 0);
 
-        var body = Text.Muted(detail);
-        body.HorizontalAlignment = HorizontalAlignment.Center;
-        body.TextAlignment = Avalonia.Media.TextAlignment.Center;
+        control.HorizontalAlignment = HorizontalAlignment.Left;
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions($"{Tokens.Layout.LabelColumn},*") };
+        Grid.SetColumn(control, 1);
+        grid.Children.Add(left);
+        grid.Children.Add(control);
+        return grid;
+    }
 
-        var card = Card.Empty(new StackPanel
-        {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Spacing = Tokens.Space.Grid,
-            Children =
-            {
-                new TextBlock { Text = emoji, FontSize = Tokens.Fonts.Hero, HorizontalAlignment = HorizontalAlignment.Center },
-                title,
-                body,
-            },
-        });
-        card.CornerRadius = new CornerRadius(Tokens.Radius.CardLarge);
-        card.Margin = new Thickness(Tokens.Layout.ScrollGutter, Tokens.Space.Roomy);
+    /// <summary>
+    /// The empty state: a small tile and one quiet line. No onboarding headline, no large icon
+    /// (the Bible, Part 2 §4).
+    /// </summary>
+    public static Control EmptyState(string icon, Tokens.Accent accent, string line)
+    {
+        var words = Text.Muted(line);
+        words.VerticalAlignment = VerticalAlignment.Center;
+        var row = Row(Tokens.Space.Base, new IconTile(icon, accent), words);
+        row.HorizontalAlignment = HorizontalAlignment.Center;
+
+        var card = Card.Standard(row);
+        card.Padding = new Thickness(Tokens.Space.Wide, Tokens.Space.Section);
         return card;
     }
 

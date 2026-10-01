@@ -332,6 +332,24 @@ public interface IStartupRegistration
     bool SetEnabled(bool enabled);
 }
 
+/// <summary>An application's icon as straight BGRA pixels, top row first.</summary>
+/// <param name="Width">Pixels across.</param>
+/// <param name="Height">Pixels down.</param>
+/// <param name="Bgra">Four bytes a pixel, premultiplied alpha.</param>
+public sealed record AppIcon(int Width, int Height, byte[] Bgra);
+
+/// <summary>
+/// The real icon of an application the user dictates into, so the history can wear Claude's,
+/// Slack's or Outlook's own mark rather than a grey initial.
+/// </summary>
+public interface IAppIcons
+{
+    /// <summary>The icon of the running process named <paramref name="app"/>, or null when none is running or it cannot be read.</summary>
+    /// <param name="app">The process name, as the history records it ("claude", "OUTLOOK").</param>
+    /// <param name="size">The pixel size wanted.</param>
+    AppIcon? Find(string app, int size);
+}
+
 /// <summary>
 /// Small adjustments to a native window that the UI framework does not expose.
 /// </summary>
