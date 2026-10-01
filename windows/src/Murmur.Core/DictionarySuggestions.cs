@@ -78,10 +78,16 @@ public static class DictionarySuggestions
         if (hear.Length == 0 || write.Length == 0 || hear == write) return false;
         if (Count(hear) > MaximumWords || Count(write) > MaximumWords) return false;
         if (!write.Any(char.IsLetter)) return false;
+        // "55" to "55k" is about this sentence; as a rule it would rewrite every 55.
+        if (!hear.Any(char.IsLetter)) return false;
         // Letters lost off one end ("And the Circle" to "ircle") are a read that began or
         // ended part-way through, not a fix anyone makes.
         var (heard, written) = (Letters(hear), Letters(write));
         if (written.Length < heard.Length && (heard.EndsWith(written, StringComparison.Ordinal) || heard.StartsWith(written, StringComparison.Ordinal))) return false;
+        // Punctuation only ("Interest" to "Interest/") or grammar ("adjustment" to
+        // "adjustments"): the right word was heard.
+        if (heard == written && !IsCaseOnly(hear, write)) return false;
+        if (IsInflection(heard, written) || IsInflection(written, heard)) return false;
         return IsCaseOnly(hear, write) || Likeness(heard, written) >= MinimumLikeness;
     }
 
@@ -102,6 +108,11 @@ public static class DictionarySuggestions
 
     private static bool IsCaseOnly(string hear, string write) =>
         !string.Equals(hear, write, StringComparison.Ordinal) && string.Equals(hear, write, StringComparison.OrdinalIgnoreCase);
+
+    private static readonly string[] Endings = ["s", "es", "d", "ed", "ing", "ly", "er"];
+
+    private static bool IsInflection(string stem, string longer) =>
+        longer.Length > stem.Length && longer.StartsWith(stem, StringComparison.Ordinal) && Endings.Contains(longer[stem.Length..]);
 
     private static int Count(string phrase) => phrase.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 

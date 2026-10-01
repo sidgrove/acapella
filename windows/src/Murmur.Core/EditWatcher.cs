@@ -149,6 +149,12 @@ public sealed class EditWatcher
                     }
                 }
 
+                // An object placeholder means the read ran into the app's own furniture: Slack's
+                // formatting toolbar, Claude's "Used 2 tools" cards under a sent message. What
+                // it found is the conversation, not the field, so it is not the user's edit.
+                if (found is not null && found.Contains(EditAlignment.ObjectPlaceholder)) found = null;
+                if (found is not null) found = EditAlignment.TrimGluedStart(typed, found);
+
                 if (found is null)
                 {
                     reason = lastSeen is null ? "never found in the field" : "sent or cleared";

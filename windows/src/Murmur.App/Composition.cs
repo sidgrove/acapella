@@ -164,7 +164,8 @@ public sealed class Composition : IAsyncDisposable
             // happening, otherwise suggested in the Dictionary tab.
             var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
             var edits = new EditWatcher(injector!);
-            var learner = new EditLearner(dictionary, suggestions, () => engine.Decisions, () => settings.Data.AddLearntFixes);
+            var learner = new EditLearner(dictionary, suggestions, () => engine.Decisions, () => settings.Data.AddLearntFixes,
+                phrase => EditLearner.TimesSaid(transcripts.Records.Select(r => r.Text), phrase));
             engine.Edits = settings.Data.LearnFromEdits ? edits : null;
             edits.Finished += (_, edit) =>
             {

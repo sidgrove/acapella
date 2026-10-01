@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Murmur.Abstractions;
 using Murmur.Dictionary;
 
@@ -10,8 +11,10 @@ namespace Murmur.Core;
 /// <remarks>
 /// <para>
 /// A fix goes into the dictionary on its own when the decision model is sure it was a
-/// mishearing, or when the user has made the same fix <see cref="AddAfter"/> times. Anything
-/// else waits in the Dictionary tab for a yes or a no. A fix the model is sure was the user
+/// mishearing, the first time when the words replaced are ones the user hardly ever says
+/// (Quilla for Quiller: nothing is lost if every Quilla becomes Quiller), or when the user has
+/// made the same fix <see cref="AddAfter"/> times. Anything else waits in the Dictionary tab
+/// for a yes or a no. A fix the model is sure was the user
 /// changing their mind is never offered: repeating it would put words in their mouth.
 /// </para>
 /// <para>
@@ -25,14 +28,17 @@ public sealed class EditLearner
     private readonly SuggestionStore _suggestions;
     private readonly Func<IDecisionModel?> _judge;
     private readonly Func<bool> _addByItself;
+    private readonly Func<string, int> _timesSaid;
 
     /// <summary>Creates a learner over the user's dictionary and suggestions.</summary>
     /// <param name="dictionary">Where learnt fixes go.</param>
     /// <param name="suggestions">Where fixes wait, and where learnt ones are recorded so they can be undone.</param>
     /// <param name="judge">The decision model to ask, read per edit; null for none.</param>
     /// <param name="addByItself">Whether fixes may go into the dictionary without the user adding them, read per edit.</param>
-    public EditLearner(DictionaryFile dictionary, SuggestionStore suggestions, Func<IDecisionModel?> judge, Func<bool> addByItself)
+    /// <param name="timesSaid">How many dictations in the history contain a phrase as whole words; null to always wait for a second fix.</param>
+    public EditLearner(DictionaryFile dictionary, SuggestionStore suggestions, Func<IDecisionModel?> judge, Func<bool> addByItself, Func<string, int>? timesSaid = null)
     {
+        _timesSaid = timesSaid ?? (_ => int.MaxValue);
         _dictionary = dictionary;
         _suggestions = suggestions;
         _judge = judge;
@@ -41,6 +47,12 @@ public sealed class EditLearner
 
     /// <summary>How many times the same fix is made before it is added without asking.</summary>
     public const int AddAfter = 2;
+
+    /// <summary>
+    /// The most dictations a phrase may appear in, the one being fixed included, for one fix to
+    /// be enough. Rarer than this and a rule for it can only ever rewrite that mishearing.
+    /// </summary>
+    public const int RarelySaid = 2;
 
     /// <summary>The decision model's probability of a mishearing above which one fix is enough.</summary>
     public const double SureMishearing = 0.85;
@@ -68,6 +80,7 @@ public sealed class EditLearner
 
                 var because = mishearing >= SureMishearing ? "Jev was sure it was a mishearing"
                     : suggestion.Count >= AddAfter ? $"you made this fix {suggestion.Count} times"
+                    : _timesSaid(hear) <= RarelySaid ? "you fixed it and hardly ever say it otherwise"
                     : null;
                 if (because is null || !_addByItself())
                 {
@@ -88,6 +101,16 @@ public sealed class EditLearner
         {
             Log.Warn($"could not learn from an edit: {e.Message}");
         }
+    }
+
+    /// <summary>How many of <paramref name="texts"/> contain <paramref name="phrase"/> as whole words, ignoring case.</summary>
+    public static int TimesSaid(IEnumerable<string> texts, string phrase)
+    {
+        var parts = phrase.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(Regex.Escape).ToArray();
+        if (parts.Length == 0) return 0;
+        var pattern = new Regex($@"(?<![\p{{L}}\p{{N}}]){string.Join(@"\s+", parts)}(?![\p{{L}}\p{{N}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return texts.Count(t => !string.IsNullOrEmpty(t) && pattern.IsMatch(t));
     }
 
     /// <summary>Undoes a fix added on its own: out of the dictionary, and never offered again.</summary>

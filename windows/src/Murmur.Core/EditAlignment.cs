@@ -136,6 +136,32 @@ public static class EditAlignment
         return typed[..t[i].Start] + found[f[j].Start..];
     }
 
+    /// <summary>The character UI Automation puts where an embedded object (a card, a toolbar button) sits in the text.</summary>
+    public const char ObjectPlaceholder = '￼';
+
+    /// <summary>
+    /// <paramref name="found"/> without text run onto the front of its first word, when that
+    /// word otherwise is the typed first word: "GHow", "Pensionthe", "on?I" for "How", "the",
+    /// "I". Field reads join a neighbouring element's text with no space; nobody fixes a word
+    /// by gluing another to it.
+    /// </summary>
+    public static string TrimGluedStart(string typed, string found)
+    {
+        var t = Words(typed);
+        var f = Words(found);
+        if (t.Count == 0 || f.Count == 0) return found;
+
+        var first = t[0].Bare;
+        var token = f[0].Text;
+        var at = token.LastIndexOf(first, StringComparison.OrdinalIgnoreCase);
+        if (at <= 0 || f[0].Bare.Length <= first.Length) return found;
+        // One letter ending a longer word ("banana" for "a") is a word, not glue.
+        if (first.Length < 2 && char.IsLetter(token[at - 1])) return found;
+        // The typed word must end the token, give or take its own trailing punctuation.
+        if (token[(at + first.Length)..].Any(c => !Punctuation.Contains(c))) return found;
+        return found[..f[0].Start] + found[(f[0].Start + at)..];
+    }
+
     /// <summary>The runs of words the user replaced, in order. Words only added or only removed are not listed.</summary>
     public static IReadOnlyList<WordChange> Changes(string typed, string final)
     {

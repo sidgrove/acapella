@@ -1525,6 +1525,7 @@ public sealed class DictationEngine : IAsyncDisposable
         // Polish runs last so a correction or a clean-up that ends a sentence is treated
         // the same as one the engine produced itself. The spoken send command was taken
         // out of the raw text before any of this, and is never in the candidate.
+        if (cleanedBy is not null) candidate = KeptCorrections.Apply(candidate, applied, entries);
         if (NoCommaBeforeAnd) candidate = TranscriptPolish.RemoveCommaBeforeAnd(candidate);
         if (BritishSpelling) candidate = BritishSpellings.Apply(candidate);
         var corrected = TranscriptPolish.Apply(candidate, FullStops);
