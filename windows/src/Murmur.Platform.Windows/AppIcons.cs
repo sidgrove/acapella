@@ -10,8 +10,10 @@ namespace Murmur.Platform.Windows;
 /// <remarks>
 /// The process is found by the name the history records, its image path read with
 /// <c>QueryFullProcessImageName</c> (limited rights, so it works for packaged and elevated
-/// apps too), and the icon drawn into a 32-bit DIB at the size asked for. Anything that fails
-/// returns null and the history shows a tinted initial instead.
+/// apps too), and the icon drawn into a 32-bit DIB at the size asked for. Store apps such as
+/// WhatsApp ship an exe with no icon in it, so for those the logo named in the package's
+/// AppxManifest.xml is loaded with GDI+ instead. Anything that fails returns null and the
+/// history shows a tinted initial instead.
 /// </remarks>
 public sealed class AppIcons : IAppIcons
 {
@@ -24,11 +26,35 @@ public sealed class AppIcons : IAppIcons
         try
         {
             var path = ImagePath(app);
-            return path is null ? null : Extract(path, size);
+            if (path is null) return null;
+            return Extract(path, size) ?? (PackageLogo.Find(path, size) is { } logo ? FromImageFile(logo, size) : null);
         }
-        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or ExternalException or ArgumentException)
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or ExternalException or ArgumentException or IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
             return null;
+        }
+    }
+
+    private static AppIcon? FromImageFile(string file, int size)
+    {
+        var input = new GdiplusStartupInput { GdiplusVersion = 1 };
+        if (GdiplusStartup(out var token, ref input, 0) != 0) return null;
+        try
+        {
+            if (GdipCreateBitmapFromFile(file, out var bitmap) != 0) return null;
+            try
+            {
+                if (GdipCreateHICONFromBitmap(bitmap, out var icon) != 0 || icon == 0) return null;
+                return Draw(icon, size);
+            }
+            finally
+            {
+                _ = GdipDisposeImage(bitmap);
+            }
+        }
+        finally
+        {
+            GdiplusShutdown(token);
         }
     }
 
@@ -64,7 +90,12 @@ public sealed class AppIcons : IAppIcons
             return null;
         }
         if (small != 0) DestroyIcon(small);
+        return Draw(large, size);
+    }
 
+    /// <summary>Draws <paramref name="large"/> into BGRA pixels and destroys it.</summary>
+    private static AppIcon? Draw(nint large, int size)
+    {
         var screen = GetDC(0);
         var memory = CreateCompatibleDC(screen);
         try
@@ -124,6 +155,30 @@ public sealed class AppIcons : IAppIcons
         public int biClrUsed;
         public int biClrImportant;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GdiplusStartupInput
+    {
+        public uint GdiplusVersion;
+        public nint DebugEventCallback;
+        public int SuppressBackgroundThread;
+        public int SuppressExternalCodecs;
+    }
+
+    [DllImport("gdiplus.dll")]
+    private static extern int GdiplusStartup(out nint token, ref GdiplusStartupInput input, nint output);
+
+    [DllImport("gdiplus.dll")]
+    private static extern void GdiplusShutdown(nint token);
+
+    [DllImport("gdiplus.dll", CharSet = CharSet.Unicode)]
+    private static extern int GdipCreateBitmapFromFile(string file, out nint bitmap);
+
+    [DllImport("gdiplus.dll")]
+    private static extern int GdipCreateHICONFromBitmap(nint bitmap, out nint icon);
+
+    [DllImport("gdiplus.dll")]
+    private static extern int GdipDisposeImage(nint image);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern nint OpenProcess(uint access, bool inherit, uint processId);
