@@ -196,6 +196,15 @@ public sealed record SettingsData
 
     /// <summary>Whether the first-run walkthrough has been completed or dismissed.</summary>
     public bool HasOnboarded { get; set; }
+
+    /// <summary>
+    /// Whether this PC syncs with Sidgrove Intelligence. Off until the user signs in; signing
+    /// out turns it off again. Never synced itself.
+    /// </summary>
+    public bool SyncEnabled { get; set; }
+
+    /// <summary>Where Sidgrove Intelligence is reached, or null for <c>https://intelligence.sidgrove.com</c>. Never synced.</summary>
+    public string? SyncServer { get; set; }
 }
 
 /// <summary>Settings, persisted as JSON.</summary>

@@ -180,6 +180,30 @@ public sealed class SuggestionStore
     /// <summary>Raised whenever the suggestions change. Any thread.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>Every suggestion, dismissed and learnt ones included, in file order.</summary>
+    public IReadOnlyList<DictionarySuggestion> All => _all;
+
+    /// <summary>
+    /// Adds or replaces <paramref name="upserts"/> by id and drops <paramref name="removals"/>,
+    /// saving once and raising <see cref="Changed"/> once. For a sync.
+    /// </summary>
+    public void Merge(IEnumerable<DictionarySuggestion> upserts, IEnumerable<Guid> removals)
+    {
+        lock (_lock)
+        {
+            var gone = removals.ToHashSet();
+            var list = _all.Where(s => !gone.Contains(s.Id)).ToList();
+            foreach (var suggestion in upserts)
+            {
+                var index = list.FindIndex(s => s.Id == suggestion.Id);
+                if (index >= 0) list[index] = suggestion; else list.Add(suggestion);
+            }
+            _all = [.. list];
+            Save();
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>
     /// Offers a fix, or counts it again if it has been offered before, and returns it as it
     /// now stands. A dismissed fix stays dismissed and comes back with <see cref="DictionarySuggestion.Dismissed"/> set.

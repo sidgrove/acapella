@@ -121,6 +121,10 @@ internal static class PlatformFactory
     public static IAppIcons? CreateAppIcons() =>
         Create<IAppIcons>("AppIcons", []);
 
+    /// <summary>Creates the DPAPI secret store for the sync token, or null off Windows.</summary>
+    public static ISecretStore? CreateSecretStore() =>
+        Create<ISecretStore>("DpapiSecretStore", []);
+
     /// <summary>Creates the per-session audio ducker, or null off Windows.</summary>
     public static IAudioDucker? CreateAudioDucker() =>
         Create<IAudioDucker>("SessionDucker", []);

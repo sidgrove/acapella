@@ -75,6 +75,9 @@ public sealed class RecordingArchive
     /// </summary>
     public string KeptFolder => Path.Combine(Folder, "corrected");
 
+    /// <summary>Where the corrected recording of the dictation released at <paramref name="at"/> is kept.</summary>
+    public string KeptPathFor(DateTimeOffset at) => Path.Combine(KeptFolder, Path.GetFileName(PathFor(at)));
+
     /// <summary>Moves the recording of the dictation released at <paramref name="at"/> out of reach of pruning. Failures go to the log.</summary>
     public void Keep(DateTimeOffset at)
     {

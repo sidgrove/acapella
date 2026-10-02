@@ -154,6 +154,16 @@ public sealed class DictionaryFile
         Save();
     }
 
+    /// <summary>
+    /// Replaces the whole list with what <paramref name="change"/> makes of it, saving once
+    /// and raising <see cref="Changed"/> once. For many changes at a time, such as a sync.
+    /// </summary>
+    public void Edit(Func<IReadOnlyList<DictionaryEntry>, IEnumerable<DictionaryEntry>> change)
+    {
+        _entries = [.. change(_entries)];
+        Save();
+    }
+
     /// <summary>Case-insensitive search across both sides of an entry.</summary>
     public IReadOnlyList<DictionaryEntry> Search(string query)
     {

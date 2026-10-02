@@ -1,5 +1,6 @@
 using Murmur.Abstractions;
 using Murmur.Core;
+using Murmur.Core.Sync;
 using Murmur.Dictionary;
 using Murmur.Speech;
 
@@ -32,8 +33,12 @@ public sealed class Composition : IAsyncDisposable
         IStartupRegistration? startup,
         IAudioDeviceCatalog? devices,
         bool platformAvailable,
-        SuggestionStore suggestions)
+        SuggestionStore suggestions,
+        SyncService? sync = null,
+        IDisposable? syncClient = null)
     {
+        Sync = sync;
+        _syncClient = syncClient;
         Settings = settings;
         Dictionary = dictionary;
         Suggestions = suggestions;
@@ -44,6 +49,11 @@ public sealed class Composition : IAsyncDisposable
         Devices = devices;
         IsPlatformAvailable = platformAvailable;
     }
+
+    private readonly IDisposable? _syncClient;
+
+    /// <summary>Sync with Sidgrove Intelligence, or null in a preview.</summary>
+    public SyncService? Sync { get; }
 
     /// <summary>Microphone enumeration, or null where the platform offers none.</summary>
     public IAudioDeviceCatalog? Devices { get; }
@@ -79,8 +89,8 @@ public sealed class Composition : IAsyncDisposable
     /// A composition over the given stores with no engine or platform layer, so every window
     /// can be built and rendered headless against sample data, never the user's own files.
     /// </summary>
-    public static Composition ForPreview(AppSettings settings, DictionaryFile dictionary, TranscriptStore transcripts, SuggestionStore suggestions) =>
-        new(settings, dictionary, transcripts, engine: null, transcriber: null, startup: null, devices: null, platformAvailable: false, suggestions);
+    public static Composition ForPreview(AppSettings settings, DictionaryFile dictionary, TranscriptStore transcripts, SuggestionStore suggestions, SyncService? sync = null) =>
+        new(settings, dictionary, transcripts, engine: null, transcriber: null, startup: null, devices: null, platformAvailable: false, suggestions, sync);
 
     /// <summary>Builds the object graph.</summary>
     public static Composition Create()
@@ -96,6 +106,7 @@ public sealed class Composition : IAsyncDisposable
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var suggestions = new SuggestionStore(SuggestionStore.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
+        var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
 
         // Warm: the microphone stays open between dictations so the first word is never lost
         // to device start-up, and the moments before the key press are included.
@@ -169,7 +180,6 @@ public sealed class Composition : IAsyncDisposable
             // should have been typed, with its recording kept for good when they changed it,
             // and a sound-alike fix is learnt: added by itself when Jev is sure or it keeps
             // happening, otherwise suggested in the Dictionary tab.
-            var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
             var edits = new EditWatcher(injector!);
             var learner = new EditLearner(dictionary, suggestions, () => engine.Decisions, () => settings.Data.AddLearntFixes,
                 phrase => EditLearner.TimesSaid(transcripts.Records.Select(r => r.Text), phrase));
@@ -255,7 +265,38 @@ public sealed class Composition : IAsyncDisposable
             };
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available, suggestions);
+        // Sync with Sidgrove Intelligence: everything learnt here reaches Dave's other PCs.
+        // The token is read per call, so signing in needs no new client; the engine applies
+        // pulled changes through the stores, whose events then update the UI and the engine.
+        var account = new SyncAccount(SyncAccount.DefaultPath, PlatformFactory.CreateSecretStore());
+        var syncClient = new SidgroveSyncClient(() => account.Token, () => settings.Data.SyncServer);
+        var syncEngine = new SyncEngine(syncClient, SyncEngine.DefaultStatePath, Environment.MachineName,
+            dictionary, suggestions, transcripts, settings, archive);
+        var sync = new SyncService(syncEngine, syncClient, account, settings,
+            token => new SidgroveSignIn(settings.Data.SyncServer, Environment.MachineName, OpenBrowser).RunAsync(token));
+        dictionary.Changed += (_, _) => sync.Notify();
+        suggestions.Changed += (_, _) => sync.Notify();
+        transcripts.Changed += (_, _) => sync.Notify();
+        transcripts.Updated += (_, _) => sync.Notify();
+        settings.Changed += (_, _) => sync.Notify();
+        sync.Start();
+
+        return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available, suggestions, sync, syncClient);
+    }
+
+    /// <summary>Opens the sign-in page in the default browser.</summary>
+    private static bool OpenBrowser(Uri url)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+            return true;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
+        {
+            Log.Warn($"sync: could not open the browser: {e.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -278,6 +319,8 @@ public sealed class Composition : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        if (Sync is not null) await Sync.DisposeAsync().ConfigureAwait(false);
+        _syncClient?.Dispose();
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
         Log.Info($"{AppPaths.ProductName} stopped");
     }

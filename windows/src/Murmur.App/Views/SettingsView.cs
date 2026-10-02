@@ -11,7 +11,7 @@ using Murmur.Speech;
 
 namespace Murmur.App.Views;
 
-/// <summary>Settings: the key, the microphone, the model, the writing rules, AI clean-up, learning, behaviour.</summary>
+/// <summary>Settings: the key, the microphone, the model, the writing rules, AI clean-up, learning, sync, behaviour.</summary>
 /// <remarks>
 /// One card per subject, each with its own tinted tile so the page reads as a set of calm,
 /// distinct things. Labels sit in a fixed column with the control beside them; what a
@@ -102,6 +102,7 @@ public sealed class SettingsView : UserControl
             Panels.SettingsCard(Icons.Sparkles, Tokens.Accent.Plum, "AI clean-up", "Gemini tidies the words before they're typed, without changing what you meant.", BuildAiSection()),
             Panels.SettingsCard(Icons.Learn, Tokens.Accent.Brand, "Learning from you", "Acapella watches what you change after it types, to measure itself and to learn your words.", BuildLearningSection()),
             Panels.SettingsCard(Icons.Zap, Tokens.Accent.Info, "Jev decisions", "TypeSafe's Jev answers small yes or no questions in about a tenth of a second: was that a send command, was that fix a mishearing, what kind of writing is this app for. Nothing you're waiting on waits for it. Leave the key blank to switch it off.", BuildJevSection()),
+            Panels.SettingsCard(Icons.Cloud, Tokens.Accent.Emerald, "Sync", "Keeps your dictionary, learnt fixes, history, settings and corrected recordings the same on each of your PCs, through Sidgrove Intelligence. The microphone, model folder and push-to-talk key stay as each PC has them.", new SyncPart(composition.Sync)),
             Panels.SettingsCard(Icons.Toggle, Tokens.Accent.Slate, "Behaviour", null, BuildBehaviourSection()));
         body.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Section);
 

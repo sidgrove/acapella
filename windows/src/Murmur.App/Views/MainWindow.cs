@@ -123,7 +123,7 @@ public sealed class MainWindow : ShellWindow
 
         if (_composition is not null) _overlay = new OverlayWindow(PlatformFactory.CreateWindowTweaks());
 
-        Content = Frame(AppPaths.ProductName, BuildBody(), BuildModeSelector());
+        Content = Frame(AppPaths.ProductName, BuildBody(), BuildModeSelector(), byline: "by Sidgrove Intelligence");
         BindShortcuts();
         ShowSection(transcriptions: true);
         RefreshHint();

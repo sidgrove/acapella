@@ -151,6 +151,11 @@ public static class SelfTest
         failures += Check("startup registration constructs", PlatformFactory.CreateStartupRegistration() is not null);
         failures += Check("window tweaks construct", PlatformFactory.CreateWindowTweaks() is not null);
 
+        var secrets = PlatformFactory.CreateSecretStore();
+        byte[] probe = [1, 2, 3, 4];
+        failures += Check("sync token store round-trips through DPAPI",
+            secrets is not null && secrets.Unprotect(secrets.Protect(probe)) is { } back && back.SequenceEqual(probe));
+
         return failures;
     }
 

@@ -524,6 +524,12 @@ public static class Tokens
         /// <summary>The wordmark, DM Sans bold, tight.</summary>
         public const double Wordmark = 30;
 
+        /// <summary>The wordmark's line when a byline sits under it: just clear of Very Vogue's overshoot, so both fit the caption strip.</summary>
+        public const double WordmarkLineHeight = 34;
+
+        /// <summary>"by Sidgrove Intelligence" under the wordmark. Small and quiet.</summary>
+        public const double Byline = 10.5;
+
         /// <summary>Sentence-case label tracking: natural spacing.</summary>
         public const double EyebrowTracking = 0;
 
@@ -930,6 +936,9 @@ public static class Tokens
 
         /// <summary>How long after typing stops a settings field is saved.</summary>
         public static TimeSpan SaveDebounce { get; } = TimeSpan.FromMilliseconds(400);
+
+        /// <summary>How often "last synced 3 minutes ago" is brought up to date.</summary>
+        public static TimeSpan RelativeTimeTick { get; } = TimeSpan.FromSeconds(30);
 
         /// <summary>How long a destructive button stays armed waiting for its second click.</summary>
         public static TimeSpan ConfirmWindow { get; } = TimeSpan.FromSeconds(4);

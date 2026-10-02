@@ -194,6 +194,35 @@ public sealed class TranscriptStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Adds or replaces <paramref name="upserts"/> by id and deletes <paramref name="removals"/>,
+    /// keeping the list newest first, with one rewrite and one <see cref="Changed"/>. For a
+    /// sync, which can bring thousands of records in a page; one call each would rewrite the
+    /// whole file thousands of times.
+    /// </summary>
+    public void Merge(IEnumerable<TranscriptRecord> upserts, IEnumerable<Guid> removals)
+    {
+        lock (_lock)
+        {
+            // TryAdd, not ToDictionary: a hand-edited file can hold the same id twice, and a
+            // sync must not throw over it. The newest copy (first in the list) wins.
+            var byId = new Dictionary<Guid, TranscriptRecord>();
+            var order = new Dictionary<Guid, int>();
+            for (var i = 0; i < _records.Length; i++)
+            {
+                if (byId.TryAdd(_records[i].Id, _records[i])) order[_records[i].Id] = i;
+            }
+            foreach (var id in removals) byId.Remove(id);
+            foreach (var record in upserts) byId[record.Id] = record;
+            // Stable for equal times: keep the existing order where the clock cannot decide.
+            _records = [.. byId.Values
+                .OrderByDescending(r => r.At)
+                .ThenBy(r => order.TryGetValue(r.Id, out var i) ? i : -1)];
+            Rewrite();
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>Deletes everything.</summary>
     public void Clear()
     {

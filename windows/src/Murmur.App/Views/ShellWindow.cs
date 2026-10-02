@@ -61,7 +61,7 @@ public abstract class ShellWindow : Window
     /// white; the body sits on the wash inside a rounded, hairline-edged panel with a slim
     /// margin, so the hero is sealed off rather than running to the window edge.
     /// </summary>
-    protected Control Frame(string title, Control body, Control? trailing = null)
+    protected Control Frame(string title, Control body, Control? trailing = null, string? byline = null)
     {
         var panel = new Border
         {
@@ -74,15 +74,15 @@ public abstract class ShellWindow : Window
         };
 
         var root = new DockPanel();
-        root.Children.Add(Panels.Docked(BuildCaption(title, trailing), Dock.Top));
+        root.Children.Add(Panels.Docked(BuildCaption(title, trailing, byline), Dock.Top));
         root.Children.Add(panel);
         return root;
     }
 
-    private Border BuildCaption(string title, Control? trailing)
+    private Border BuildCaption(string title, Control? trailing, string? byline)
     {
         // The site's header: the wordmark alone on the left, nav on the right.
-        var left = Wordmark.Make(title);
+        var left = Wordmark.Make(title, byline);
 
         var glyphs = new StackPanel
         {
