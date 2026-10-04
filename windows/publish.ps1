@@ -4,8 +4,8 @@
 
 .DESCRIPTION
   Produces a self-contained, single-file win-x64 build in windows/dist/. The platform
-  layer and NAudio travel beside the exe rather than inside it — see Murmur.App.csproj for
-  why — so the whole dist folder is the artifact, not the exe alone.
+  layer and NAudio travel beside the exe rather than inside it - see Murmur.App.csproj for
+  why - so the whole dist folder is the artifact, not the exe alone.
 
   Run install.ps1 afterwards to put it in Start and on the taskbar, or copy the dist folder
   anywhere and double-click Acapella.exe.

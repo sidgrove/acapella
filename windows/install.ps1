@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Copies windows/dist (from publish.ps1) to %LOCALAPPDATA%\Programs\Acapella, creates a Start
-  menu shortcut, registers an entry in Settings → Apps so it can be uninstalled normally,
+  menu shortcut, registers an entry in Settings -> Apps so it can be uninstalled normally,
   and launches it.
 
   Why per-user and not Program Files: the model download and the log live under
@@ -43,7 +43,7 @@ if ($Uninstall) {
 
 $dist = Join-Path $PSScriptRoot 'dist'
 if (-not (Test-Path (Join-Path $dist 'Acapella.exe'))) {
-    throw "nothing to install — run publish.ps1 first"
+    throw "nothing to install - run publish.ps1 first"
 }
 
 New-Item -ItemType Directory -Force $target | Out-Null
@@ -72,4 +72,4 @@ Copy-Item $PSCommandPath (Join-Path $target 'install.ps1') -Force
 
 Start-Process $exe
 Write-Host "installed to $target"
-Write-Host "Start menu: $name   ·   uninstall from Settings > Apps"
+Write-Host "Start menu: $name   -   uninstall from Settings > Apps"
