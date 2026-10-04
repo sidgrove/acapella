@@ -12,7 +12,8 @@ namespace Murmur.App.Views;
 
 /// <summary>
 /// A Sidgrove window: the wash background, a slim caption strip with the mark and a
-/// Very Vogue title in place of the OS title bar, thin glyphs for the window controls.
+/// Very Vogue title (and its byline, on the same line) in place of the OS title bar, thin
+/// glyphs for the window controls. The strip and the white margin match Setlist's.
 /// </summary>
 /// <remarks>
 /// The client area is extended over the title bar so the whole window is one surface.
@@ -81,8 +82,9 @@ public abstract class ShellWindow : Window
 
     private Border BuildCaption(string title, Control? trailing, string? byline)
     {
-        // The site's header: the wordmark alone on the left, nav on the right.
-        var left = Wordmark.Make(title, byline);
+        // The site's header: the wordmark alone on the left, nav on the right. It fills what the
+        // right leaves, less a little air, so a narrow window trims it rather than overlapping.
+        var left = new Wordmark(title, byline) { Margin = new Thickness(0, 0, Tokens.Space.Roomy, 0) };
 
         var glyphs = new StackPanel
         {
@@ -118,7 +120,7 @@ public abstract class ShellWindow : Window
         var strip = new Border
         {
             Height = Tokens.Layout.CaptionHeight,
-            Padding = new Thickness(Tokens.Space.Section, 0, Tokens.Space.Base, 0),
+            Padding = new Thickness(Tokens.Layout.CaptionPadLeft, 0, Tokens.Space.Base, 0),
             Background = Tokens.Brushes.None,
             Child = new DockPanel { Children = { right, left } },
         };

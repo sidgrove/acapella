@@ -131,6 +131,59 @@ public sealed class BibleControlTests
         Tokens.Layout.ButtonHeight.ShouldBe(36);
         Tokens.Layout.ButtonHeightSmall.ShouldBe(32);
     }
+
+    [AvaloniaFact]
+    public void The_byline_sits_on_the_names_line_and_gives_way_when_narrow()
+    {
+        var mark = new Wordmark("Acapella", "by Sidgrove Intelligence");
+        var window = new Window { Width = 600, Height = Tokens.Layout.CaptionHeight, Content = mark };
+        window.Show();
+        window.UpdateLayout();
+        var texts = mark.Children.OfType<TextBlock>().ToList();
+        var (name, byline) = (texts[0], texts[1]);
+
+        mark.ShowsByline.ShouldBeTrue();
+        byline.Bounds.Left.ShouldBe(name.Bounds.Right + Tokens.Layout.BylineGap, 0.5);
+        (name.Bounds.Top + name.TextLayout.Baseline).ShouldBe(Tokens.Layout.CaptionBaseline, 0.5);
+        (byline.Bounds.Top + byline.TextLayout.Baseline).ShouldBe(Tokens.Layout.CaptionBaseline - Tokens.Layout.BylineRaise, 0.5);
+        mark.Children.OfType<LogoMark>().Single().Bounds.Center.Y.ShouldBe(Tokens.Layout.CaptionHeight / 2, 0.5);
+
+        window.Width = 160;
+        window.UpdateLayout();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        mark.ShowsByline.ShouldBeFalse();
+        byline.Bounds.Width.ShouldBe(0);
+        name.Bounds.Right.ShouldBeLessThanOrEqualTo(160);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_title_row_is_Setlists_and_its_controls_sit_in_the_middle_of_it()
+    {
+        Tokens.Layout.CaptionHeight.ShouldBe(40);
+        Tokens.Layout.PanelInset.ShouldBe(12);
+        Tokens.Layout.LogoTile.ShouldBe(26);
+        Tokens.Fonts.Wordmark.ShouldBe(22);
+
+        var main = new Murmur.App.Views.MainWindow { Width = 1080, Height = 780 };
+        try
+        {
+            main.Show();
+            main.UpdateLayout();
+            var strip = (Border)main.GetVisualDescendants().OfType<Wordmark>().Single().GetVisualParent()!.GetVisualParent()!;
+            strip.Bounds.Height.ShouldBe(Tokens.Layout.CaptionHeight);
+            var right = ((DockPanel)strip.Child!).Children[0];
+            var centre = Tokens.Layout.CaptionHeight / 2;
+            right.GetVisualDescendants().OfType<CaptionGlyph>().Count().ShouldBe(3);
+            foreach (var control in right.GetVisualDescendants().OfType<CaptionGlyph>().Cast<Control>().Append(right.GetVisualChildren().OfType<Control>().First()))
+            {
+                var top = Avalonia.VisualExtensions.TranslatePoint(control, default(Avalonia.Point), strip)!.Value.Y;
+                (top + control.Bounds.Height / 2).ShouldBe(centre, 0.5, control.GetType().Name);
+            }
+        }
+        finally { main.Close(); }
+    }
 }
 
 internal static class LogicalExtensions

@@ -521,13 +521,13 @@ public static class Tokens
         /// <summary>Nav links. <c>.nav-links a</c> 0.9375rem, weight 500.</summary>
         public const double Nav = 15;
 
-        /// <summary>The wordmark, DM Sans bold, tight.</summary>
-        public const double Wordmark = 30;
+        /// <summary>
+        /// The name in the title row, Very Vogue Text. 22px, Setlist's size: the two are siblings
+        /// and their title rows match (Dave, 04/10/2026).
+        /// </summary>
+        public const double Wordmark = 22;
 
-        /// <summary>The wordmark's line when a byline sits under it: just clear of Very Vogue's overshoot, so both fit the caption strip.</summary>
-        public const double WordmarkLineHeight = 34;
-
-        /// <summary>"by Sidgrove Intelligence" under the wordmark. Small and quiet.</summary>
+        /// <summary>"by Sidgrove Intelligence" after the name, on its line. Small and quiet.</summary>
         public const double Byline = 10.5;
 
         /// <summary>Sentence-case label tracking: natural spacing.</summary>
@@ -690,8 +690,8 @@ public static class Tokens
     /// <summary>Window and control dimensions.</summary>
     public static class Layout
     {
-        /// <summary>The white margin between the window edge and the rounded wash panel.</summary>
-        public const double PanelInset = 20;
+        /// <summary>The white margin between the window edge and the rounded wash panel. Setlist's.</summary>
+        public const double PanelInset = 12;
 
         /// <summary>Initial main window width.</summary>
         public const double MainWidth = 1080;
@@ -725,8 +725,27 @@ public static class Tokens
         /// <summary>Reading column width, in the spirit of <c>--sg-page-read</c> at desktop scale.</summary>
         public const double ContentMaxWidth = 760;
 
-        /// <summary>The caption strip.</summary>
-        public const double CaptionHeight = 52;
+        /// <summary>
+        /// The caption strip: one line for the mark, the name and its byline. 40, Setlist's height
+        /// (Dave, 04/10/2026: "too much of the vertical space at the top is taken by random stuff ...
+        /// more space for the interface").
+        /// </summary>
+        public const double CaptionHeight = 40;
+
+        /// <summary>From the window's left edge to the mark.</summary>
+        public const double CaptionPadLeft = 18;
+
+        /// <summary>Where the name's baseline sits, down from the top of the caption strip.</summary>
+        public const double CaptionBaseline = 27;
+
+        /// <summary>Between the name and its byline.</summary>
+        public const double BylineGap = 9;
+
+        /// <summary>How far the byline's baseline sits above the name's.</summary>
+        public const double BylineRaise = 1;
+
+        /// <summary>Narrower than this, the byline drops out rather than trimming to nothing.</summary>
+        public const double BylineMinWidth = 60;
 
         /// <summary>Caption glyph buttons.</summary>
         public const double CaptionButton = 28;
@@ -877,8 +896,8 @@ public static class Tokens
         /// <summary>Download gauge height.</summary>
         public const double GaugeHeight = 6;
 
-        /// <summary>The logo tile in the caption.</summary>
-        public const double LogoTile = 36;
+        /// <summary>The logo tile in the caption. Setlist's.</summary>
+        public const double LogoTile = 26;
 
         /// <summary>Hero grid pitch. <c>.grid-pattern</c> 56px.</summary>
         public const double GridPitch = 56;

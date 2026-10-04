@@ -1065,13 +1065,26 @@ public sealed class NavLink : Button
     }
 }
 
-/// <summary>The wordmark: the slash-dot mark, then the name in Very Vogue.</summary>
-public static class Wordmark
+/// <summary>
+/// The wordmark in the caption strip: the mark, the name in Very Vogue and, when given, a quiet
+/// byline after the name on the same line. Setlist's title row (its <c>FramedForm.PaintCaption</c>):
+/// the two apps are siblings and their title rows match (Dave, 04/10/2026).
+/// </summary>
+/// <remarks>
+/// The name trims with an ellipsis when the strip is too narrow for it. The byline drops out once
+/// it would have less than <see cref="Tokens.Layout.BylineMinWidth"/>; it is laid out to nothing
+/// rather than hidden, because changing visibility inside a layout pass starts another one.
+/// </remarks>
+public sealed class Wordmark : Panel
 {
-    /// <summary>Creates the wordmark, with a quiet line under the name when <paramref name="byline"/> is given.</summary>
-    public static StackPanel Make(string text, string? byline = null)
+    private readonly LogoMark _mark = new();
+    private readonly TextBlock _name;
+    private readonly TextBlock? _byline;
+
+    /// <summary>Creates the wordmark, with <paramref name="byline"/> after the name when given.</summary>
+    public Wordmark(string text, string? byline = null)
     {
-        var name = new TextBlock
+        _name = new TextBlock
         {
             Text = text,
             FontFamily = Tokens.Fonts.Serif,
@@ -1079,44 +1092,76 @@ public static class Wordmark
             FontWeight = FontWeight.Normal,
             LetterSpacing = Tokens.Fonts.TitleTracking * (Tokens.Fonts.Wordmark / Tokens.Fonts.Title),
             Foreground = Tokens.Brushes.Ink,
-            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        Children.Add(_mark);
+        Children.Add(_name);
 
-        Control words = name;
-        if (byline is not null)
+        if (byline is null) return;
+        _byline = new TextBlock
         {
-            name.LineHeight = Tokens.Fonts.WordmarkLineHeight;
-            words = new StackPanel
-            {
-                Orientation = Orientation.Vertical,
-                VerticalAlignment = VerticalAlignment.Center,
-                Children =
-                {
-                    name,
-                    new TextBlock
-                    {
-                        Text = byline,
-                        FontFamily = Tokens.Fonts.Sans,
-                        FontSize = Tokens.Fonts.Byline,
-                        FontWeight = FontWeight.Normal,
-                        Foreground = Tokens.Brushes.Muted,
-                        Margin = new Thickness(0, -Tokens.Space.Hair, 0, 0),
-                    },
-                },
-            };
+            Text = byline,
+            FontFamily = Tokens.Fonts.Sans,
+            FontSize = Tokens.Fonts.Byline,
+            FontWeight = FontWeight.Normal,
+            Foreground = Tokens.Brushes.Muted,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            // Laid out to nothing when it does not fit, so nothing of it may paint outside that.
+            ClipToBounds = true,
+        };
+        Children.Add(_byline);
+    }
+
+    /// <summary>Whether the byline had room at the last layout.</summary>
+    public bool ShowsByline { get; private set; }
+
+    private double TextLeft => _mark.DesiredSize.Width + Tokens.Space.Snug;
+
+    /// <inheritdoc />
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        _mark.Measure(Size.Infinity);
+        _name.Measure(new Size(Math.Max(0, availableSize.Width - TextLeft), double.PositiveInfinity));
+        var width = TextLeft + _name.DesiredSize.Width;
+
+        ShowsByline = false;
+        if (_byline is not null)
+        {
+            var room = availableSize.Width - width - Tokens.Layout.BylineGap;
+            ShowsByline = room > Tokens.Layout.BylineMinWidth;
+            _byline.Measure(ShowsByline ? new Size(room, double.PositiveInfinity) : default);
+            if (ShowsByline) width += Tokens.Layout.BylineGap + _byline.DesiredSize.Width;
         }
 
-        return new StackPanel
+        // Where the words go is decided here, and Avalonia skips an arrange whose rectangle has
+        // not changed, so ask for one: a measure at a new width can come before the new bounds.
+        InvalidateArrange();
+        return new Size(width, Math.Max(_mark.DesiredSize.Height, _name.DesiredSize.Height));
+    }
+
+    /// <inheritdoc />
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var mark = _mark.DesiredSize;
+        _mark.Arrange(new Rect(0, (finalSize.Height - mark.Height) / 2, mark.Width, mark.Height));
+
+        // The name's baseline sits where Setlist's does in its strip, held from the middle so the
+        // line keeps its place should the strip ever be laid out taller.
+        var baseline = finalSize.Height / 2 + Tokens.Layout.CaptionBaseline - Tokens.Layout.CaptionHeight / 2;
+        var nameWidth = Math.Min(_name.DesiredSize.Width, Math.Max(0, finalSize.Width - TextLeft));
+        _name.Arrange(new Rect(TextLeft, baseline - _name.TextLayout.Baseline, nameWidth, _name.DesiredSize.Height));
+
+        if (_byline is not null)
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = Tokens.Space.Snug,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children =
-            {
-                new LogoMark { VerticalAlignment = VerticalAlignment.Center },
-                words,
-            },
-        };
+            var left = TextLeft + nameWidth + Tokens.Layout.BylineGap;
+            _byline.Arrange(ShowsByline
+                ? new Rect(left, baseline - Tokens.Layout.BylineRaise - _byline.TextLayout.Baseline, _byline.DesiredSize.Width, _byline.DesiredSize.Height)
+                : new Rect(left, 0, 0, 0));
+        }
+
+        return finalSize;
     }
 }
 
