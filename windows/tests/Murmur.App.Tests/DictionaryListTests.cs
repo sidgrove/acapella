@@ -58,7 +58,10 @@ public sealed class DictionaryListTests
                 .ToList();
             written.ShouldBe(["accruals", "Anthropic", "Claude Code", "git pull", "Sidgrove", "Xero"]);
 
-            var heard = list.Children[0].GetVisualDescendants().OfType<Chip>().Select(c => c.Text).ToList();
+            // The counts in the list's band are not ways it was heard.
+            var heard = list.Children[0].GetVisualDescendants().OfType<Chip>()
+                .Where(c => !c.GetVisualAncestors().OfType<Control>().Any(a => a.Name == "Counts"))
+                .Select(c => c.Text).ToList();
             heard.ShouldBe(["cloud code", "get poll", "git pool", "Sid grove", "Off"], "the switched-off entry says so");
 
             view.GetVisualDescendants().OfType<Murmur.App.Controls.Switch>().ShouldBeEmpty("switching off and deleting happen in the editor, not on eighty rows");

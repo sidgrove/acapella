@@ -46,3 +46,11 @@ Dave: "I don't really like the toggles; they are a bit shit if I'm honest with y
 - **Empty history** shows the key to press as keycaps.
 
 Before and after: `docs/screenshots/2026-10-05-bible/`.
+
+## Round two, 5 October 2026 (Dave's corrections)
+
+- **Tabs are held again:** an underline under bare words read as floating text (the Bible: words sit on a control or in a held shape). The sections sit on the house bed with the white thumb gliding, beside the title (its titleAside), not at the far right.
+- **The title row is only the mark and the window controls.** Instant / Polished moved to Settings (AI clean-up, "Writing mode", the house toggle with its bolt and sparkles). A small chip on the status line says which mode is in use and opens Settings.
+- **No toolbar strip:** search is a magnifier on the title row that opens into a field (the bed's white thumb), and the rare and destructive actions (clear the history, edit dictionary.txt) sit behind "..." beside it. Today's figures ride in today's band; the dictionary's counts ride in its "A to Z" band.
+- **Rows are the words:** no timing line; when, where, how long and which models are on the time's tooltip. The row's verbs float over its top right corner on hover, so the words keep the full width.
+- **Motion was looked at:** `The_glides_are_rendered_frame_by_frame` (with `ACAPELLA_VISUAL_DIR`) writes the glide frame by frame in real time; `round-2/glide.gif` shows the thumb settling in about a quarter of a second.

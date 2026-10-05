@@ -39,6 +39,7 @@ public sealed class MainWindow : ShellWindow
     private readonly NavLink _settingsLink;
     private SettingsView? _settingsView;
     private readonly ContentControl _sectionHost;
+    private readonly Border _toolsHost = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Border _fault;
     private readonly TextBlock _faultText;
     private readonly DispatcherTimer _poll;
@@ -124,7 +125,7 @@ public sealed class MainWindow : ShellWindow
 
         // The mark alone top left, no name and no byline: the window's OS title still says Acapella
         // for the taskbar and screen readers (Dave, 05/10/2026: "just keep it sharp").
-        Content = Frame(null, BuildBody(), BuildModeSelector());
+        Content = Frame(null, BuildBody());
         BindShortcuts();
         ShowSection(transcriptions: true);
         RefreshHint();
@@ -216,34 +217,28 @@ public sealed class MainWindow : ShellWindow
     }
 
     /// <summary>
-    /// Instant or Polished, in the title row: the one choice made many times a day. The house
-    /// toggle, each side wearing its own small mark, a bolt for straight from the microphone and
-    /// sparkles for the clean-up, coloured only while it is the one in use.
+    /// Which mode is in use, as one small chip on the status line: a bolt for Instant, sparkles
+    /// for Polished. The choice itself lives in Settings (Dave, 05/10/2026: "maybe that should
+    /// just be settings as well"), so the title row is only the mark; the chip is the door there.
     /// </summary>
-    private Segmented BuildModeSelector()
+    private Border BuildModeChip()
     {
-        var mode = new Segmented(
-        [
-            new Segmented.Choice("Instant", Icons.Zap, Tokens.Accent.Amber, "Instant: typed exactly as heard, on this machine, with no clean-up."),
-            new Segmented.Choice("Polished", Icons.Sparkles, Tokens.Accent.Plum, "Polished: tidied by Gemini before it's typed, with punctuation, self-corrections and your house style."),
-        ], _composition?.Settings.Data.AiCleanup == true ? 1 : 0);
-
-        void Refresh() => mode.Select(_composition?.Settings.Data.AiCleanup == true ? 1 : 0);
-
-        void Choose(bool usePolished)
+        var host = new Border { VerticalAlignment = VerticalAlignment.Center, Cursor = new Cursor(StandardCursorType.Hand), Margin = new Thickness(Tokens.Space.Snug, 0, 0, 0) };
+        void Refresh()
         {
-            if (_composition is null || _composition.Engine?.State is not (null or DictationState.Idle)) return;
-            if (_composition.Settings.Data.AiCleanup != usePolished)
-                _composition.Settings.Update(_composition.Settings.Data with { AiCleanup = usePolished });
+            var polished = _composition?.Settings.Data.AiCleanup == true;
+            host.Child = polished
+                ? new Chip("Polished", Tokens.Accent.Plum, Icons.Sparkles)
+                : new Chip("Instant", Tokens.Accent.Amber, Icons.Zap);
+            ToolTip.SetTip(host, polished
+                ? "Polished: tidied by Gemini before it's typed. Change it in Settings."
+                : "Instant: typed exactly as heard, on this machine. Change it in Settings.");
         }
-
-        mode.IsEnabled = _composition is not null;
-        // A choice refused mid-dictation snaps back to the mode still in use.
-        mode.Selected += (_, index) => { Choose(index == 1); Refresh(); };
+        host.PointerPressed += (_, e) => { if (e.GetCurrentPoint(host).Properties.IsLeftButtonPressed) ShowSettings(); };
         if (_composition is not null)
             _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
-
-        return mode;
+        Refresh();
+        return host;
     }
 
     private Border BuildBody()
@@ -255,20 +250,33 @@ public sealed class MainWindow : ShellWindow
         return new Border { Child = body, MaxWidth = Tokens.Layout.MainContentMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Roomy) };
     }
 
-    /// <summary>One row: the title on the left, the sections beside it on the right.</summary>
+    /// <summary>
+    /// One row: the title on the left, then the section's own tools (search, its one action and
+    /// the "..." menu) and the sections on the right. The page has no toolbar strip of its own.
+    /// </summary>
     private Grid BuildMasthead()
     {
         var tabs = NavLink.Track(_transcriptionsLink, _dictionaryLink, _settingsLink);
+        // The sections sit beside the title (its titleAside), the page's tools at the far right.
         var row = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto"),
             Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, Tokens.Space.Wide, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy),
         };
+        tabs.Margin = new Thickness(Tokens.Space.Wide, Tokens.Space.Tight, 0, 0);
+        _toolsHost.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Tight, 0, 0);
         Grid.SetColumn(tabs, 1);
+        Grid.SetColumn(_toolsHost, 3);
         row.Children.Add(_title);
+        row.Children.Add(_toolsHost);
         row.Children.Add(tabs);
         // A narrow window takes the title down a size rather than cutting it short.
-        row.SizeChanged += (_, e) => _title.FontSize = e.NewSize.Width < Tokens.Layout.NarrowTitleBelow ? Tokens.Fonts.TitleNarrow : Tokens.Fonts.Title;
+        row.SizeChanged += (_, e) =>
+        {
+            _title.FontSize = e.NewSize.Width < Tokens.Layout.NarrowTitleBelow ? Tokens.Fonts.TitleNarrow : Tokens.Fonts.Title;
+            // Narrow, the page's one action keeps its icon and gives up its words.
+            _dictionaryView?.SetCompact(e.NewSize.Width < Tokens.Layout.CompactToolsBelow);
+        };
         return row;
     }
 
@@ -296,7 +304,7 @@ public sealed class MainWindow : ShellWindow
 
         var stateLine = Panels.Row(Tokens.Space.Snug, _stateTitle, _counter);
         _shortcut.Margin = new Thickness(Tokens.Space.Snug, 0, 0, 0);
-        var words = Panels.Row(Tokens.Space.Snug, stateLine, _shortcut);
+        var words = Panels.Row(Tokens.Space.Snug, stateLine, _shortcut, BuildModeChip());
         words.MinHeight = Tokens.Layout.TileLead;
 
         var right = Panels.Row(Tokens.Space.Roomy, _bars, _enabled);
@@ -308,6 +316,8 @@ public sealed class MainWindow : ShellWindow
         _preview.Margin = new Thickness(Tokens.Layout.TileLead + Tokens.Space.Base, Tokens.Space.Snug, 0, 0);
         var card = Card.Standard(Panels.Column(0, top, _preview, _fault), Tokens.Space.Roomy);
         card.Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Base, Tokens.Space.Wide, Tokens.Space.Base);
+        // Narrow, the resting waveform gives way so the state, the key and the mode never crowd.
+        card.SizeChanged += (_, e) => _bars.Opacity = e.NewSize.Width < Tokens.Layout.StatusBarsBelow ? 0 : 1;
         card.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy);
         return card;
     }
@@ -372,11 +382,14 @@ public sealed class MainWindow : ShellWindow
         {
             _transcriptionsView ??= new TranscriptionsView(_composition.Transcripts, () => KeyName);
             _sectionHost.Content = _transcriptionsView;
+            _toolsHost.Child = _transcriptionsView.Tools;
         }
         else
         {
             _dictionaryView ??= new DictionaryView(_composition.Dictionary, _composition.Suggestions);
             _sectionHost.Content = _dictionaryView;
+            _toolsHost.Child = _dictionaryView.Tools;
+            _dictionaryView.SetCompact(_sectionHost.Bounds.Width is > 0 and < Tokens.Layout.CompactToolsBelow);
         }
     }
 
@@ -401,6 +414,7 @@ public sealed class MainWindow : ShellWindow
         _dictionaryLink.IsActive = false;
         _settingsLink.IsActive = true;
         SetTitle("Your ", "settings");
+        _toolsHost.Child = null;
         if (_composition is null)
         {
             _sectionHost.Content = Text.Body("Settings");

@@ -32,6 +32,9 @@ public sealed class TranscriptionsView : UserControl
     private readonly StackPanel _list;
     private readonly WrapPanel _summary;
     private readonly SgButton _clear;
+    private readonly SearchToggle _searchToggle;
+    private readonly SgButton _menu;
+    private readonly Border _held;
     private readonly Func<string>? _shortcut;
 
     /// <summary>
@@ -56,9 +59,7 @@ public sealed class TranscriptionsView : UserControl
             Refresh();
         };
 
-        _search.Width = Tokens.Layout.SearchWidth;
-        // A narrow window gives the day's chips the room rather than the search box.
-        SizeChanged += (_, e) => _search.Width = e.NewSize.Width < Tokens.Layout.NarrowSearchBelow ? Tokens.Layout.SearchWidthNarrow : Tokens.Layout.SearchWidth;
+        _searchToggle = new SearchToggle(_search);
 
         _list = new StackPanel { Spacing = 0, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
         _summary = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center };
@@ -67,16 +68,14 @@ public sealed class TranscriptionsView : UserControl
         // rewrite the file on the spot with no way back.
         // A bare bin until it's pressed: rarely wanted, so it shouldn't take the toolbar's room.
         // Quiet at rest (red only when something is wrong); coral once it is armed.
-        var clear = IconAction(Icons.Trash, "Clear the whole history");
+        var clear = new SgButton("Clear the whole history", SgButton.Kind.Quiet, compact: true, icon: Icons.Trash);
         _clear = clear;
         var armed = false;
         void Disarm()
         {
             armed = false;
             clear.Variant = SgButton.Kind.Quiet;
-            clear.Content = string.Empty;
-            clear.Width = Tokens.Layout.ButtonHeightSmall;
-            clear.Padding = new Thickness(0);
+            clear.Content = "Clear the whole history";
         }
         var disarm = new Avalonia.Threading.DispatcherTimer { Interval = Tokens.Motion.ConfirmWindow };
         disarm.Tick += (_, _) => { disarm.Stop(); Disarm(); };
@@ -87,8 +86,6 @@ public sealed class TranscriptionsView : UserControl
                 armed = true;
                 clear.Variant = SgButton.Kind.Danger;
                 clear.Content = "Click again to clear everything";
-                clear.Width = double.NaN;
-                clear.Padding = new Thickness(Tokens.Layout.ButtonPadXSmall, 0);
                 disarm.Stop();
                 disarm.Start();
                 return;
@@ -99,17 +96,14 @@ public sealed class TranscriptionsView : UserControl
             Refresh();
         };
 
-        var tools = Panels.Row(Tokens.Space.Snug, _search, clear);
-        Content = new DockPanel
-        {
-            Children =
-            {
-                Panels.Docked(Gutter(Panels.Split(_summary, tools)), Dock.Top),
-                // Padding inside the scroll viewer, not margin outside it: the viewer clips to its
-                // bounds, and without room the cards' edges are cut off.
-                new ScrollViewer { Margin = new Thickness(0, Tokens.Space.Roomy, 0, 0), Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto },
-            },
-        };
+        // No strip of its own: search and the rare actions sit on the title row (Tools), and
+        // today's figures ride in today's band, so the list starts straight under the status.
+        _menu = MoreMenu.Make(clear);
+        _held = MoreMenu.Held(_searchToggle, _menu);
+        Tools = _held;
+        // Padding inside the scroll viewer, not margin outside it: the viewer clips to its
+        // bounds, and without room the cards' edges are cut off.
+        Content = new ScrollViewer { Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
 
         // The store changes on the engine's thread when a dictation completes; the list
         // must only be touched on the UI thread. One new record is one new row at the
@@ -118,6 +112,9 @@ public sealed class TranscriptionsView : UserControl
         _store.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(OnStoreChanged);
         Refresh();
     }
+
+    /// <summary>Search and the "..." menu, for the window's title row.</summary>
+    public Control Tools { get; }
 
     private Guid? _newestShown;
     private int _shownCount;
@@ -171,17 +168,20 @@ public sealed class TranscriptionsView : UserControl
         return string.Create(CultureInfo.CurrentCulture, $"today {waits.Count} dictated, typical wait {typical:0.00} s, slowest {waits[^1]:0.0} s");
     }
 
-    /// <summary>The day's figures as chips: how many today, and how long the typical wait was.</summary>
+    /// <summary>
+    /// Today's figures as chips in today's band: how many, the typical wait and the words. They
+    /// describe today, so they live on today's heading, not in a strip of their own.
+    /// </summary>
     private void RefreshSummary()
     {
         _summary.Children.Clear();
         // With nothing kept there is nothing to count, search or clear.
-        _clear.IsVisible = _store.Records.Count > 0;
-        _search.IsVisible = _store.Records.Count > 0;
+        _held.IsVisible = _store.Records.Count > 0;
         if (_store.Records.Count == 0) return;
         var today = DateTime.Today;
         var todays = _store.Records.Where(r => r.At.ToLocalTime().Date == today).ToList();
-        var count = new Chip(todays.Count == 1 ? "1 today" : $"{todays.Count} today", Tokens.Accent.Brand, Icons.Mic);
+        if (todays.Count == 0) return;
+        var count = new Chip(todays.Count == 1 ? "1 dictation" : $"{todays.Count} dictations", Tokens.Accent.Brand, Icons.Mic);
         ToolTip.SetTip(count, $"{_store.Records.Count:N0} kept in all");
         _summary.Children.Add(count);
 
@@ -198,18 +198,8 @@ public sealed class TranscriptionsView : UserControl
         if (words > 0) _summary.Children.Add(new Chip(string.Create(CultureInfo.CurrentCulture, $"{words:N0} words"), Tokens.Accent.Plum, Icons.Pen));
     }
 
-    private static Control Gutter(Control control)
-    {
-        control.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0);
-        return control;
-    }
-
-    /// <summary>Puts the caret in the search field.</summary>
-    public void FocusSearch()
-    {
-        _search.Focus();
-        _search.SelectAll();
-    }
+    /// <summary>Opens the search field and puts the caret in it.</summary>
+    public void FocusSearch() => _searchToggle.Open();
 
     private static DateTime Day(TranscriptRecord record) => record.At.ToLocalTime().Date;
 
@@ -267,7 +257,7 @@ public sealed class TranscriptionsView : UserControl
             {
                 _lastDay = Day(record);
                 var day = _lastDay.Value;
-                _list.Children.Add(DayHeading(day, _matches.Count(r => Day(r) == day), first: _list.Children.Count == 0));
+                _list.Children.Add(DayHeading(day, _matches.Count(r => Day(r) == day), first: _list.Children.Count == 0, figures: day == DateTime.Today ? _summary : null));
             }
             _list.Children.Add(BuildRow(record));
         }
@@ -310,7 +300,7 @@ public sealed class TranscriptionsView : UserControl
     /// The day's band: "Today", "Yesterday" or "Tuesday 29/09" with its count, on the soft header
     /// tint at the top of the day's card (rules by weight: a tinted band marks a group).
     /// </summary>
-    private static Border DayHeading(DateTime day, int count, bool first)
+    private static Border DayHeading(DateTime day, int count, bool first, WrapPanel? figures)
     {
         var today = DateTime.Today;
         var name = day == today ? "Today" : day == today.AddDays(-1) ? "Yesterday"
@@ -319,15 +309,28 @@ public sealed class TranscriptionsView : UserControl
         label.Foreground = Tokens.Brushes.Ink;
         var tally = Text.Caption(count == 1 ? "1 dictation" : $"{count} dictations");
         tally.VerticalAlignment = VerticalAlignment.Center;
+        Control content;
+        if (figures is null)
+        {
+            content = Panels.Row(Tokens.Space.Snug, label, tally);
+        }
+        else
+        {
+            // Today's band carries today's figures in place of the plain count.
+            (figures.Parent as Panel)?.Children.Remove(figures);
+            figures.HorizontalAlignment = HorizontalAlignment.Right;
+            content = Panels.Split(label, figures);
+        }
         return new Border
         {
             Background = Tokens.Brushes.Surface,
             BorderBrush = Tokens.Brushes.CardBorder,
             BorderThickness = new Thickness(Tokens.Border.Hairline),
             CornerRadius = new CornerRadius(Tokens.Radius.Card, Tokens.Radius.Card, 0, 0),
-            Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Snug + 1),
+            Padding = new Thickness(Tokens.Space.Roomy, figures is null ? Tokens.Space.Snug + 1 : Tokens.Space.Snug - 2, Tokens.Space.Base, figures is null ? Tokens.Space.Snug + 1 : Tokens.Space.Snug - 2),
             Margin = new Thickness(0, first ? 0 : Tokens.Space.Wide, 0, 0),
-            Child = Panels.Row(Tokens.Space.Snug, label, tally),
+            MinHeight = Tokens.Layout.DayBandHeight,
+            Child = content,
         };
     }
 
@@ -352,13 +355,9 @@ public sealed class TranscriptionsView : UserControl
         var delete = IconAction(Icons.Trash, "Delete this dictation", danger: true);
         delete.Click += (_, _) => _store.Remove(record.Id);
 
-        // Where it went and how long it took: one quiet line, figures before words.
+        // Only what says something about this dictation: its style, a fix, a fallback, an edit.
+        // Where it went is the mark; when, how long and which models are on the time's tooltip.
         var meta = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center };
-        var where = record.App is { Length: > 0 } app ? $"{AppMark.DisplayName(app)}  ·  " : string.Empty;
-        var line = Text.Meta(string.Create(CultureInfo.CurrentCulture, $"{where}{record.AudioSeconds:0.0} s spoken  ·  {record.ProcessingSeconds:0.00} s wait"));
-        line.VerticalAlignment = VerticalAlignment.Center;
-        ToolTip.SetTip(line, Route(record));
-        meta.Children.Add(line);
 
         if (StyleChip(record.Style) is { } style) meta.Children.Add(style);
         if (record.CleanupFailed)
@@ -415,16 +414,32 @@ public sealed class TranscriptionsView : UserControl
         time.HorizontalAlignment = HorizontalAlignment.Right;
         time.VerticalAlignment = VerticalAlignment.Top;
         time.Margin = new Thickness(0, Tokens.Space.Snug, Tokens.Space.Snug, 0);
-        ToolTip.SetTip(time, record.At.ToLocalTime().ToString("dddd dd/MM/yyyy HH:mm", CultureInfo.GetCultureInfo("en-GB")));
+        ToolTip.SetTip(time, string.Create(CultureInfo.CurrentCulture,
+            $"{record.At.ToLocalTime().ToString("dddd dd/MM/yyyy HH:mm", CultureInfo.GetCultureInfo("en-GB"))}{(record.App is { Length: > 0 } app ? $" in {AppMark.DisplayName(app)}" : string.Empty)}\n{record.AudioSeconds:0.0} s spoken, {record.ProcessingSeconds:0.00} s wait\n{Route(record)}"));
 
         var words = Text.Reading(record.Text);
+        meta.IsVisible = meta.Children.Count > 0;
         var body = Panels.Column(Tokens.Space.Snug, words, reveals, meta);
         Control mark = record.App is { Length: > 0 } name ? new AppMark(name) : new IconTile(Icons.Mic, Tokens.Accent.Brand);
         mark.VerticalAlignment = VerticalAlignment.Top;
         mark.Margin = new Thickness(Tokens.Space.Roomy, Tokens.Space.Roomy, 0, 0);
 
-        // The time and the verbs share the right-hand corner, one showing at a time.
-        var corner = new Panel { Children = { time, actions }, Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Base - 2, Tokens.Space.Base, 0), MinWidth = Tokens.Layout.ButtonHeightSmall };
+        // The time keeps a narrow column; the verbs float over the row's top right corner on a
+        // pad of the hover tint, so the words keep the full width at rest.
+        var corner = new Panel { Children = { time }, Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Base - 2, Tokens.Space.Base, 0) };
+        var verbs = new Border
+        {
+            Child = actions,
+            Background = Tokens.Brushes.RowHover,
+            CornerRadius = new CornerRadius(Tokens.Radius.Button),
+            Padding = new Thickness(Tokens.Space.Tight, 0, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, Tokens.Space.Base - 2, Tokens.Space.Base, 0),
+            ZIndex = 1,
+        };
+        Grid.SetColumn(verbs, 1);
+        Grid.SetColumnSpan(verbs, 2);
 
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
         var divider = new Border
@@ -442,14 +457,15 @@ public sealed class TranscriptionsView : UserControl
         grid.Children.Add(mark);
         grid.Children.Add(body);
         grid.Children.Add(corner);
+        grid.Children.Add(verbs);
 
         var row = new Row(grid, divider);
 
         // Only the row under the pointer, or holding the keyboard, offers its verbs.
         void Offer(bool on)
         {
-            actions.Opacity = on ? 1 : 0;
-            actions.IsHitTestVisible = on;
+            verbs.Opacity = on ? 1 : 0;
+            verbs.IsHitTestVisible = on;
             time.Opacity = on ? 0 : 1;
             row.Background = on ? Tokens.Brushes.RowHover : Tokens.Brushes.Card;
         }

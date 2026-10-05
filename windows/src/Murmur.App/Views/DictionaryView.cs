@@ -32,6 +32,21 @@ public sealed class DictionaryView : UserControl
     private readonly TextBox _search;
     private readonly StackPanel _list;
     private readonly WrapPanel _summary;
+    private readonly SearchToggle _searchToggle;
+    private SgButton? _add;
+
+    /// <summary>In a narrow window Add word keeps its plus and gives up its words.</summary>
+    public void SetCompact(bool compact)
+    {
+        if (_add is null) return;
+        _add.Content = compact ? string.Empty : "Add word";
+        _add.Width = compact ? Tokens.Layout.ButtonHeightSmall : double.NaN;
+        _add.Padding = compact ? new Thickness(0) : new Thickness(Tokens.Layout.ButtonPadXSmall, 0);
+        ToolTip.SetTip(_add, compact ? "Add word (Ctrl+N)" : null);
+    }
+
+    /// <summary>Search, the "..." menu and Add word, for the window's title row.</summary>
+    public Control Tools { get; }
 
     /// <summary>Builds the view over <paramref name="file"/>, with <paramref name="suggestions"/> from the user's edits shown above it.</summary>
     public DictionaryView(DictionaryFile file, SuggestionStore? suggestions = null)
@@ -41,15 +56,17 @@ public sealed class DictionaryView : UserControl
 
         _search = Field.Search("Search");
         _search.TextChanged += (_, _) => Refresh();
-        _search.Width = Tokens.Layout.SearchWidth;
-        SizeChanged += (_, e) => _search.Width = e.NewSize.Width < Tokens.Layout.NarrowSearchBelow ? Tokens.Layout.SearchWidthNarrow : Tokens.Layout.SearchWidth;
+        _searchToggle = new SearchToggle(_search);
 
         var add = new SgButton("Add word", SgButton.Kind.Primary, compact: true, icon: Icons.Plus);
         add.Click += (_, _) => ShowEditor(null);
 
-        var open = new SgButton(string.Empty, SgButton.Kind.Quiet, compact: true, icon: Icons.File) { Width = Tokens.Layout.ButtonHeightSmall, Padding = new Thickness(0) };
-        ToolTip.SetTip(open, "Open dictionary.txt to edit it by hand");
+        var open = new SgButton("Edit dictionary.txt by hand", SgButton.Kind.Quiet, compact: true, icon: Icons.File);
         open.Click += (_, _) => OpenInEditor(_file.FilePath);
+        // The page's one action, the search and the rare one, on the title row like the history's.
+        add.Margin = new Thickness(Tokens.Space.Snug, 0, 0, 0);
+        _add = add;
+        Tools = Panels.Row(0, MoreMenu.Held(_searchToggle, MoreMenu.Make(open)), add);
 
         _list = new StackPanel { Spacing = Tokens.Space.Base, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
         _summary = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center };
@@ -58,8 +75,7 @@ public sealed class DictionaryView : UserControl
         {
             Children =
             {
-                Panels.Docked(Gutter(Panels.Split(_summary, Panels.Row(Tokens.Space.Snug, _search, open, add))), Dock.Top),
-                new ScrollViewer { Margin = new Thickness(0, Tokens.Space.Roomy, 0, 0), Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto },
+                new ScrollViewer { Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto },
             },
         };
 
@@ -75,17 +91,10 @@ public sealed class DictionaryView : UserControl
     /// <summary>How many suggestions are waiting, for the tab's label.</summary>
     public static int PendingSuggestions(SuggestionStore suggestions, DictionaryFile file) => Pending(suggestions, file).Count;
 
-    private static Control Gutter(Control control)
-    {
-        control.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0);
-        return control;
-    }
-
     /// <summary>Puts the caret in the search field.</summary>
     public void FocusSearch()
     {
-        _search.Focus();
-        _search.SelectAll();
+        _searchToggle.Open();
     }
 
     /// <summary>Opens the editor on a blank entry.</summary>
@@ -130,7 +139,24 @@ public sealed class DictionaryView : UserControl
             rows.Children.Add(BuildRow(groups[i].Write, groups[i].Entries));
         }
 
-        _list.Children.Add(Card.Standard(rows, Tokens.Space.Snug));
+        // The counts ride in the list's own band, as today's figures do in the history: no strip.
+        (_summary.Parent as Panel)?.Children.Remove(_summary);
+        _summary.Name = "Counts";
+        var title = Text.Label("A to Z");
+        title.Foreground = Tokens.Brushes.Ink;
+        var band = new Border
+        {
+            Background = Tokens.Brushes.Surface,
+            BorderBrush = Tokens.Brushes.CardBorder,
+            BorderThickness = new Thickness(0, 0, 0, Tokens.Border.Hairline),
+            CornerRadius = new CornerRadius(Tokens.Radius.Card - 1, Tokens.Radius.Card - 1, 0, 0),
+            Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Snug - 2, Tokens.Space.Base, Tokens.Space.Snug - 2),
+            MinHeight = Tokens.Layout.DayBandHeight,
+            Child = Panels.Split(title, _summary),
+        };
+        var card = Card.Standard(Panels.Column(0, band, new Border { Padding = new Thickness(Tokens.Space.Snug), Child = rows }), 0);
+        card.Padding = new Thickness(0);
+        _list.Children.Add(card);
     }
 
     private static Border Rule() => new() { Height = Tokens.Border.Hairline, Background = Tokens.Brushes.Line, Margin = new Thickness(Tokens.Space.Base, 0) };

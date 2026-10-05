@@ -265,12 +265,13 @@ public sealed class Segmented : Border
 }
 
 /// <summary>
-/// One section in the masthead's tabs: its name in words on the page, muted at rest, ink when
-/// current, with the underline gliding beneath it. A count rides beside the name as a chip.
+/// One section in the masthead's tabs: held on the house bed with a white thumb that glides to the
+/// current one, the same shape as every toggle. A count rides beside the name as a chip.
 /// </summary>
 /// <remarks>
-/// Not a toggle: these change the page, so they read as navigation (the site's own nav, with
-/// its periwinkle underline), and the one tinted bed stays the mark of an either-or choice.
+/// Dave, 05/10/2026, on an underline under bare words: it read as floating text. Words always sit
+/// on a control or in a held shape, so the sections are held again, slimmer and paler than the old
+/// grey tray, with the thumb moving rather than jumping.
 /// </remarks>
 public sealed class NavLink : Button
 {
@@ -295,7 +296,8 @@ public sealed class NavLink : Button
         _surface = new Border
         {
             Background = Tokens.Brushes.None,
-            Height = Tokens.Layout.TabHeight,
+            Height = Tokens.Layout.SegmentHeight,
+            Padding = new Thickness(Tokens.Layout.NavPillPadX, 0),
             Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center, Children = { _label, _count } },
         };
         Background = Tokens.Brushes.None;
@@ -324,29 +326,26 @@ public sealed class NavLink : Button
         }
     }
 
-    /// <summary>
-    /// The tabs: the links side by side with air between them and the brand underline under
-    /// the current one, gliding when it changes.
-    /// </summary>
-    public static Control Track(params NavLink[] links)
+    /// <summary>The tabs: the links on the house bed, the white thumb gliding to the current one.</summary>
+    public static Border Track(params NavLink[] links)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Layout.TabGap };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Hair };
         foreach (var link in links) row.Children.Add(link);
-        var underline = new Border { Background = Tokens.Brushes.BrandStrong, CornerRadius = new CornerRadius(Tokens.Radius.Pill) };
-        var glide = new GlidePanel(row, underline, () => links.FirstOrDefault(l => l.IsActive),
-            link => new Rect(link.Bounds.X, link.Bounds.Bottom - Tokens.Layout.TabUnderline, ((NavLink)link).LabelWidth, Tokens.Layout.TabUnderline))
+        var thumb = new Border { Background = Tokens.Brushes.Card, CornerRadius = new CornerRadius(Tokens.Radius.Segment), BoxShadow = Tokens.Shadow.NavActive };
+        var glide = new GlidePanel(row, thumb, () => links.FirstOrDefault(l => l.IsActive), link => link.Bounds);
+        foreach (var link in links) link._glide = glide;
+        return new Border
         {
+            Background = Tokens.Brushes.ToggleBed,
+            CornerRadius = new CornerRadius(Tokens.Radius.Button),
+            Padding = new Thickness(Tokens.Space.TrackInset),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Left,
+            Child = glide,
         };
-        foreach (var link in links) link._glide = glide;
-        return glide;
     }
 
     private GlidePanel? _glide;
-
-    // The underline runs under the name only, not the count beside it.
-    private double LabelWidth => _label.Bounds.Width;
 
     /// <summary>Whether this link is the current section.</summary>
     public bool IsActive

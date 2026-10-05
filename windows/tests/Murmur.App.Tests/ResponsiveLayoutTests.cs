@@ -73,10 +73,10 @@ public sealed class ResponsiveLayoutTests
             scroll.Bounds.Height.ShouldBeGreaterThan(120, "the header must leave room to read history");
             scroll.Offset = new Vector(0, 80);
             window.UpdateLayout();
-            var search = view.GetVisualDescendants().OfType<TextBox>().First();
-            var headerBottom = search.TranslatePoint(default, view)!.Value.Y + search.Bounds.Height;
-            var viewportTop = scroll.TranslatePoint(default, view)!.Value.Y;
-            (viewportTop - headerBottom).ShouldBeGreaterThanOrEqualTo(12, "the header gap must remain when cards scroll");
+            // No toolbar strip: search sits on the title row, so the list starts straight under the status card.
+            var status = window.GetVisualDescendants().OfType<Murmur.App.Controls.Switch>().Single();
+            var statusBottom = status.TranslatePoint(default, window)!.Value.Y + status.Bounds.Height;
+            scroll.TranslatePoint(default, window)!.Value.Y.ShouldBeGreaterThan(statusBottom, "the list never slides under the status card");
             var list = (StackPanel)scroll.Content!;
             foreach (var card in list.Children)
             {

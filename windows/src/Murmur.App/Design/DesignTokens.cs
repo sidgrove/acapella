@@ -478,7 +478,7 @@ public static class Tokens
         public const double ButtonSmall = 12;
 
         /// <summary>A section switcher's labels.</summary>
-        public const double Tab = 14;
+        public const double Tab = 13;
 
         /// <summary>Base text, kit inputs. 14px.</summary>
         public const double Base = 14;
@@ -771,6 +771,15 @@ public static class Tokens
 
         /// <summary>Between one section tab's words and the next.</summary>
         public const double TabGap = 22;
+
+        /// <summary>Narrower than this, the status card leaves out its resting waveform.</summary>
+        public const double StatusBarsBelow = 640;
+
+        /// <summary>Narrower than this, the masthead's tools drop their words and keep their icons.</summary>
+        public const double CompactToolsBelow = 700;
+
+        /// <summary>A day's band at the top of its card, the same with or without today's chips in it.</summary>
+        public const double DayBandHeight = 38;
 
         /// <summary>The underline under the current section, and its rounded ends.</summary>
         public const double TabUnderline = 2;

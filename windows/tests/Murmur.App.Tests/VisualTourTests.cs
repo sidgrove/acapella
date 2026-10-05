@@ -123,6 +123,48 @@ public sealed class VisualTourTests
         }
     }
 
+    /// <summary>
+    /// The thumb and the tab glide, captured frame by frame with the clock stepped by hand, so the
+    /// motion can be seen without a person at the app. Writes glide-NN.png beside the tour.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_glides_are_rendered_frame_by_frame()
+    {
+        if (Dir is null) return;
+        Directory.CreateDirectory(Dir);
+        var animate = Murmur.App.Design.Tokens.Motion.Animate;
+        Murmur.App.Design.Tokens.Motion.Animate = true;
+        try
+        {
+            var links = new[] { new Murmur.App.Controls.NavLink("Dictations") { IsActive = true }, new Murmur.App.Controls.NavLink("Dictionary"), new Murmur.App.Controls.NavLink("Settings") };
+            var tabs = Murmur.App.Controls.NavLink.Track(links);
+            var mode = new Murmur.App.Controls.Segmented(
+            [
+                new Murmur.App.Controls.Segmented.Choice("Instant", Murmur.App.Controls.Icons.Zap, Murmur.App.Design.Tokens.Accent.Amber),
+                new Murmur.App.Controls.Segmented.Choice("Polished", Murmur.App.Controls.Icons.Sparkles, Murmur.App.Design.Tokens.Accent.Plum),
+            ]);
+            var window = new Window
+            {
+                Width = 420, Height = 120, Background = Murmur.App.Design.Tokens.Brushes.Card,
+                Content = new StackPanel { Spacing = 16, Margin = new Avalonia.Thickness(20), Children = { tabs, mode } },
+            };
+            window.Show();
+            Save(window, "glide-00");
+            links[0].IsActive = false;
+            links[2].IsActive = true;
+            mode.Press(1);
+            for (var frame = 1; frame <= 24; frame++)
+            {
+                // The transition clock follows real time, so each frame waits one frame of it.
+                Thread.Sleep(16);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Save(window, $"glide-{frame:00}");
+            }
+            window.Close();
+        }
+        finally { Murmur.App.Design.Tokens.Motion.Animate = animate; }
+    }
+
     private static void Save(Window window, string name)
     {
         window.UpdateLayout();

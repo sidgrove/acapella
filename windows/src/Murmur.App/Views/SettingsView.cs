@@ -242,9 +242,7 @@ public sealed class SettingsView : UserControl
         };
 
         return Panels.Column(Tokens.Space.Roomy,
-            Panels.SwitchRow("Clean up with Gemini before typing",
-                "Tidies every dictation, even a single word: punctuation, self-corrections, numbers and likely mishearings, without changing your meaning. Your text goes to Google's API, about a twentieth of a penny a dictation on Flash. If it doesn't answer within four seconds, or rewrites rather than tidies, your words are typed as heard.",
-                _settings.Data.AiCleanup, v => Save(_settings.Data with { AiCleanup = v })),
+            ModeRow(),
             Panels.SwitchRow("Review long dictations as a whole",
                 "Off cleans a long dictation piece by piece while you're still talking, so the wait at the end is short. On sends the whole thing once you stop, so every sentence is read with its neighbours: the best result, at roughly a second per hundred words.",
                 _settings.Data.ReviewWholeDictation, v => Save(_settings.Data with { ReviewWholeDictation = v })),
@@ -344,4 +342,26 @@ public sealed class SettingsView : UserControl
     }
 
     private void Save(SettingsData data) => _settings.Update(data);
+
+    /// <summary>
+    /// Instant or Polished, the house toggle with its two marks: the mode moved here from the title
+    /// row (Dave, 05/10/2026), with the chip on the status line as the way in.
+    /// </summary>
+    private Grid ModeRow()
+    {
+        var mode = new Segmented(
+        [
+            new Segmented.Choice("Instant", Icons.Zap, Tokens.Accent.Amber, "Typed exactly as heard, on this machine, with no clean-up."),
+            new Segmented.Choice("Polished", Icons.Sparkles, Tokens.Accent.Plum, "Tidied by Gemini before it's typed."),
+        ], _settings.Data.AiCleanup ? 1 : 0);
+        mode.Selected += (_, index) =>
+        {
+            if (_settings.Data.AiCleanup != (index == 1)) Save(_settings.Data with { AiCleanup = index == 1 });
+        };
+        _settings.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => mode.Select(_settings.Data.AiCleanup ? 1 : 0));
+        return Panels.FieldRow("Writing mode",
+            "Polished tidies every dictation, even a single word: punctuation, self-corrections, numbers and likely mishearings, without changing your meaning. Your text goes to Google's API, about a twentieth of a penny a dictation on Flash. If it doesn't answer within four seconds, or rewrites rather than tidies, your words are typed as heard. Instant types exactly what was heard, on this machine.",
+            mode);
+    }
+
 }
