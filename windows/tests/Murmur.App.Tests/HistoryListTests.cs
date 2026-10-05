@@ -62,6 +62,43 @@ public sealed class HistoryListTests
     }
 }
 
+/// <summary>The day's band is the list's header: pinned at the top, the next day taking over as it arrives.</summary>
+public sealed class PinnedBandTests
+{
+    [AvaloniaFact]
+    public void The_band_of_the_day_at_the_top_is_pinned_and_the_next_day_takes_over()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"acapella-pinned-{Guid.NewGuid()}.jsonl");
+        var store = new TranscriptStore(path);
+        var yesterday = DateTimeOffset.Now.Date.AddDays(-1).AddHours(12);
+        for (var i = 0; i < 12; i++) store.Add(new TranscriptRecord { At = yesterday.AddMinutes(i), Text = $"Yesterday {i}, a line or two so the list runs past the window." });
+        for (var i = 0; i < 12; i++) store.Add(new TranscriptRecord { At = DateTimeOffset.Now.AddMinutes(-i - 1), Text = $"Today {i}, a line or two so the list runs past the window." });
+        var view = new TranscriptionsView(store);
+        var window = new Window { Content = view, Width = 800, Height = 500 };
+        try
+        {
+            window.Show();
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            view.PinnedDay.ShouldBe(DateTime.Today, "the newest day heads the list");
+
+            var scroll = view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel);
+            var list = (StackPanel)scroll.Content!;
+            var second = list.Children.Where(c => c.IsVisible).Skip(1).First(c => c.GetType().Name == "DayBand");
+            scroll.Offset = new Avalonia.Vector(0, second.Bounds.Y + 4);
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            view.PinnedDay.ShouldBe(DateTime.Today.AddDays(-1), "yesterday's band takes over once it reaches the top");
+
+            scroll.Offset = default;
+            window.UpdateLayout();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            view.PinnedDay.ShouldBe(DateTime.Today);
+        }
+        finally { window.Close(); File.Delete(path); }
+    }
+}
+
 /// <summary>Today's wait from key-up to text, shown under the history.</summary>
 public sealed class LatencyReadoutTests
 {

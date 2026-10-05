@@ -54,3 +54,8 @@ Before and after: `docs/screenshots/2026-10-05-bible/`.
 - **No toolbar strip:** search is a magnifier on the title row that opens into a field (the bed's white thumb), and the rare and destructive actions (clear the history, edit dictionary.txt) sit behind "..." beside it. Today's figures ride in today's band; the dictionary's counts ride in its "A to Z" band.
 - **Rows are the words:** no timing line; when, where, how long and which models are on the time's tooltip. The row's verbs float over its top right corner on hover, so the words keep the full width.
 - **Motion was looked at:** `The_glides_are_rendered_frame_by_frame` (with `ACAPELLA_VISUAL_DIR`) writes the glide frame by frame in real time; `round-2/glide.gif` shows the thumb settling in about a quarter of a second.
+
+## Round three, 5 October 2026 (Dave: "almost there" on the toggles; freeze the header)
+
+- **The toggles, warmer:** each tab leads with its own mark (mic in brand, book in emerald, sliders in plum), in its hue even at rest, softened until chosen or hovered. The white thumb sits on a brand-tinted ring and lift instead of grey, glides with a small spring past its mark and home (`Thumb.Spring`, 340 ms, clamped inside the bed), an unchosen segment shows a whisper of white under the pointer, and a segment gives a little (96%) as it is pressed.
+- **The day's band is the list's header and pins:** it sits above the scrolling rows as the card's rounded top, outside the scroll, so the margin above and the rounded corners never move. Each later day's band runs edge to edge between the rows and takes over the pinned header as it reaches the top. The days are one continuous card now; only the last row rounds it off.

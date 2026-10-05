@@ -309,6 +309,9 @@ public static class Tokens
         /// <inheritdoc cref="Colors.Wash"/>
         public static IBrush Wash { get; } = new SolidColorBrush(Colors.Wash);
 
+        /// <summary>An unchosen segment under the pointer: a whisper of the thumb's white on the bed.</summary>
+        public static IBrush SegmentHover { get; } = new SolidColorBrush(Colors.Card, 0.55);
+
         /// <summary>A list row under the pointer: the faintest brand-tinted white, so the row answers back without a box.</summary>
         public static IBrush RowHover { get; } = new SolidColorBrush(Color.FromRgb(0xFA, 0xFB, 0xFE));
 
@@ -412,6 +415,9 @@ public static class Tokens
 
         /// <summary>Idle listening bars.</summary>
         public const double BarsIdle = 0.55;
+
+        /// <summary>An unchosen segment's mark: its own hue, softened, so the colour is there before it is chosen.</summary>
+        public const double GlyphResting = 0.5;
 
         /// <summary>The lit top edge inside the hero button. <c>.button</c> on the site.</summary>
         public const double HeroInsetHighlight = 0.16;
@@ -680,6 +686,14 @@ public static class Tokens
         public static BoxShadows HeroPressed => new(
             Layer(1, 2, 0x1A1D2E, 0.22),
             [Layer(2, 5, 0x1A1D2E, 0.16)]);
+
+        /// <summary>
+        /// The toggle's thumb: a hairline ring and a soft lift, both tinted with the brand ink rather
+        /// than grey, so the white reads warm and held.
+        /// </summary>
+        public static BoxShadows Thumb => new(
+            new BoxShadow { Spread = 0.5, Color = Color.FromArgb(0x14, 0x3D, 0x47, 0x85) },
+            [Layer(1, 2, 0x3D4785, 0.10), Layer(3, 8, 0x3D4785, 0.08)]);
 
         /// <summary>No shadow.</summary>
         public static BoxShadows None => default;
@@ -957,8 +971,11 @@ public static class Tokens
         /// <summary>Hover fades. <c>0.15s</c>.</summary>
         public static TimeSpan Quick { get; } = TimeSpan.FromMilliseconds(150);
 
-        /// <summary>The toggle's thumb and the section underline gliding to the new choice.</summary>
-        public static TimeSpan Glide { get; } = TimeSpan.FromMilliseconds(260);
+        /// <summary>The toggle's thumb gliding to the new choice, settling with a small spring.</summary>
+        public static TimeSpan Glide { get; } = TimeSpan.FromMilliseconds(340);
+
+        /// <summary>How far a segment gives under the pointer as it is pressed.</summary>
+        public const double SegmentPress = 0.96;
 
         /// <summary>
         /// Whether things glide. Off in the headless tests, whose clock never runs, so a capture

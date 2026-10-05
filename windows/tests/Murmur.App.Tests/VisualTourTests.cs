@@ -41,6 +41,22 @@ public sealed class VisualTourTests
             var main = new MainWindow(composition) { Width = 1080, Height = 780 };
             main.Show();
             Save(main, "history-1080");
+            // Scrolled: the day's band stays pinned at the top of the card, and yesterday's takes over.
+            var history = main.GetVisualDescendants().OfType<TranscriptionsView>().Single();
+            var rows = history.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel);
+            var yesterdayBand = ((StackPanel)rows.Content!).Children.Where(c => c.IsVisible && c.GetType().Name == "DayBand").First();
+            foreach (var (offset, shot) in new[] { (260.0, "history-scrolled"), (yesterdayBand.Bounds.Y - 120, "history-scrolled-arriving") })
+            {
+                rows.Offset = new Avalonia.Vector(0, offset);
+                Save(main, shot);
+            }
+            // Shorter, so the list can carry yesterday's band all the way to the top.
+            main.Height = 560;
+            Save(main, "history-scrolled-yesterday");
+            rows.Offset = new Avalonia.Vector(0, yesterdayBand.Bounds.Y + 40);
+            Save(main, "history-scrolled-yesterday");
+            main.Height = 780;
+            rows.Offset = default;
             main.Width = 640; main.Height = 480;
             Save(main, "history-640");
             main.Width = 1440; main.Height = 900;
@@ -226,6 +242,10 @@ public sealed class VisualTourTests
                 AudioSeconds = audio, ProcessingSeconds = secs, Corrections = corrections, EditChecked = edited is not null, EditedText = edited,
                 CleanupFailed = failed, CleanedBy = failed ? null : by, TranscribedBy = "scribe_v2_realtime",
             });
+        var yesterday = (int)(DateTime.Now - DateTime.Today).TotalMinutes;
+        Add(yesterday + 320, "Let's run the Bible over the whole interface", app: "claude", style: "Prompt", audio: 2.1, secs: 0.7);
+        Add(yesterday + 260, "Right, let's go through the VAT review together on Thursday morning, if that works for you", app: "OUTLOOK", style: "Email", audio: 5.2, secs: 0.9);
+        Add(yesterday + 200, "Can you send the payroll journal over for Circle once it's posted?", app: "slack", style: "Chat", audio: 3.4, secs: 0.8);
         Add(240, "Okay, so the US entity was non-existent. I presume it would need to be in existence in order for there to be a contract with it", app: "slack", style: "Chat", audio: 9.2, secs: 1.1);
         Add(200, "Can we run Impeccable over the serif headings on the pricing page please?", raw: "Can we run impeccable over the Sarif headings on the pricing page please", app: "claude", style: "Prompt", corrections: [new AppliedCorrection("Sarif", "serif", 1)]);
         Add(120, "I've now pushed Xero down to the basic tier, so it's just £2.50 a month basically", app: "OUTLOOK", style: "Email", audio: 6.1, secs: 0.8, edited: "I've now pushed Xero down to the basic tier; so it's just £2.50 a month basically");

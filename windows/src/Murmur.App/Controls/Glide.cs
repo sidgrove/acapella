@@ -84,7 +84,7 @@ public sealed class GlidePanel : Panel
                 MarkerWidth = at.Width;
                 if (Tokens.Motion.Animate)
                 {
-                    var ease = new CubicEaseOut();
+                    var ease = Thumb.Spring;
                     Transitions =
                     [
                         new DoubleTransition { Property = MarkerXProperty, Duration = Tokens.Motion.Glide, Easing = ease },
@@ -101,7 +101,10 @@ public sealed class GlidePanel : Panel
             }
             _target = at;
             _marker.IsVisible = true;
-            _marker.Arrange(new Rect(MarkerX, at.Y, Math.Max(0, MarkerWidth), at.Height));
+            // The spring may carry the marker a hair past its mark, never past the bed's edge.
+            var width = Math.Clamp(MarkerWidth, 0, finalSize.Width);
+            var x = Math.Clamp(MarkerX, 0, Math.Max(0, finalSize.Width - width));
+            _marker.Arrange(new Rect(x, at.Y, width, at.Height));
         }
         else
         {
@@ -168,13 +171,7 @@ public sealed class Segmented : Border
             row.Children.Add(item);
         }
 
-        var thumb = new Border
-        {
-            Background = Tokens.Brushes.Card,
-            CornerRadius = new CornerRadius(Tokens.Radius.Segment),
-            BoxShadow = Tokens.Shadow.NavActive,
-        };
-        _glide = new GlidePanel(row, thumb, () => _active >= 0 && _active < _items.Count ? _items[_active] : null, item => item.Bounds);
+        _glide = new GlidePanel(row, Thumb.Make(), () => _active >= 0 && _active < _items.Count ? _items[_active] : null, item => item.Bounds);
         Child = _glide;
         Select(selected);
     }
@@ -205,9 +202,7 @@ public sealed class Segmented : Border
 
     private sealed class Item : Border
     {
-        private readonly TextBlock _label;
-        private readonly Glyph? _glyph;
-        private bool _on;
+        private readonly SegmentFace _face;
 
         public Item(Choice option, int index)
         {
@@ -215,26 +210,10 @@ public sealed class Segmented : Border
             Index = index;
             Focusable = true;
             Height = Tokens.Layout.SegmentHeight;
-            Padding = new Thickness(option.Icon is null ? Tokens.Layout.NavPillPadX : Tokens.Layout.NavPillPadX - 3, 0, Tokens.Layout.NavPillPadX, 0);
-            Background = Tokens.Brushes.None;
             Cursor = new Cursor(StandardCursorType.Hand);
-
-            _label = new TextBlock
-            {
-                Text = option.Label,
-                FontFamily = Tokens.Fonts.Sans,
-                FontSize = Tokens.Fonts.Small,
-                FontWeight = FontWeight.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center };
-            if (option.Icon is { } icon)
-            {
-                _glyph = new Glyph(icon, 13);
-                content.Children.Add(_glyph);
-            }
-            content.Children.Add(_label);
-            Child = content;
+            _face = new SegmentFace(this, option.Label, option.Icon, option.Accent, Tokens.Fonts.Small);
+            Child = _face.Content;
+            Padding = _face.Padding;
             if (option.Tip is { } tip) ToolTip.SetTip(this, tip);
             Avalonia.Automation.AutomationProperties.SetName(this, option.Label);
         }
@@ -243,30 +222,124 @@ public sealed class Segmented : Border
 
         public int Index { get; }
 
-        public void Paint(bool on)
-        {
-            _on = on;
-            Repaint();
-        }
+        public void Paint(bool on) => _face.Paint(on);
+    }
+}
 
-        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-        {
-            base.OnPropertyChanged(change);
-            if (change.Property == IsPointerOverProperty) Repaint();
-        }
+/// <summary>
+/// The thumb every toggle and the tabs share: white, a little rounder than the bed's inside, and
+/// lifted on a soft shadow tinted with the brand rather than grey, so it reads as a small held
+/// thing sitting on the bed, not a box drawn on it.
+/// </summary>
+internal static class Thumb
+{
+    public static Border Make() => new()
+    {
+        Background = Tokens.Brushes.Card,
+        CornerRadius = new CornerRadius(Tokens.Radius.Segment),
+        BoxShadow = Tokens.Shadow.Thumb,
+    };
 
-        private void Repaint()
+    /// <summary>A glide that settles with the smallest spring past its mark, then home.</summary>
+    public static Easing Spring { get; } = new SoftSpring();
+
+    private sealed class SoftSpring : Easing
+    {
+        // Back-out with a gentle overshoot: a couple of per cent past the mark, then home.
+        private const double Overshoot = 0.5;
+
+        public override double Ease(double progress)
         {
-            _label.Foreground = _on ? Tokens.Brushes.Ink : IsPointerOver ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
-            if (_glyph is not null)
-                _glyph.Ink = _on ? (Option.Accent?.Ink ?? Tokens.Brushes.BrandStrong) : Tokens.Brushes.Faint;
+            var p = progress - 1;
+            return 1 + (Overshoot + 1) * p * p * p + Overshoot * p * p;
+        }
+    }
+}
+
+/// <summary>
+/// The words and mark inside one segment or tab, and how they answer: the mark in its own hue
+/// (fuller when chosen, softer when not), the ink deepening on hover with a whisper of white
+/// behind it, and a small press that gives under the pointer.
+/// </summary>
+internal sealed class SegmentFace
+{
+    private readonly Border _host;
+    private readonly TextBlock _label;
+    private readonly Glyph? _glyph;
+    private readonly Tokens.Accent? _accent;
+    private bool _on;
+
+    public SegmentFace(Border host, string text, string? icon, Tokens.Accent? accent, double size)
+    {
+        _host = host;
+        _accent = accent;
+        _label = new TextBlock
+        {
+            Text = text,
+            FontFamily = Tokens.Fonts.Sans,
+            FontSize = size,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center };
+        if (icon is not null)
+        {
+            _glyph = new Glyph(icon, 13) { Transitions = [new DoubleTransition { Property = Visual.OpacityProperty, Duration = Tokens.Motion.Quick }] };
+            Content.Children.Add(_glyph);
+        }
+        Content.Children.Add(_label);
+        Padding = new Thickness(icon is null ? Tokens.Layout.NavPillPadX : Tokens.Layout.NavPillPadX - 3, 0, Tokens.Layout.NavPillPadX, 0);
+
+        host.Background = Tokens.Brushes.None;
+        host.CornerRadius = new CornerRadius(Tokens.Radius.Segment);
+        host.RenderTransform = new ScaleTransform(1, 1);
+        host.RenderTransformOrigin = RelativePoint.Center;
+        host.Transitions =
+        [
+            new BrushTransition { Property = Border.BackgroundProperty, Duration = Tokens.Motion.Quick },
+            new TransformOperationsTransition { Property = Visual.RenderTransformProperty, Duration = Tokens.Motion.Press },
+        ];
+        host.PropertyChanged += (_, e) => { if (e.Property == InputElement.IsPointerOverProperty) Repaint(); };
+        host.AddHandler(InputElement.PointerPressedEvent, (_, _) => Press(true), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        host.AddHandler(InputElement.PointerReleasedEvent, (_, _) => Press(false), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        host.AddHandler(InputElement.PointerCaptureLostEvent, (_, _) => Press(false), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        Repaint();
+    }
+
+    public StackPanel Content { get; }
+
+    public Thickness Padding { get; }
+
+    public TextBlock Label => _label;
+
+    public void Paint(bool on)
+    {
+        _on = on;
+        Repaint();
+    }
+
+    private void Press(bool down) =>
+        _host.RenderTransform = Avalonia.Media.Transformation.TransformOperations.Parse(down ? $"scale({Tokens.Motion.SegmentPress.ToString(System.Globalization.CultureInfo.InvariantCulture)})" : "scale(1)");
+
+    private void Repaint()
+    {
+        var over = _host.IsPointerOver;
+        _label.Foreground = _on ? Tokens.Brushes.Ink : over ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
+        // The thumb is the chosen one's surface; an unchosen one under the pointer gets a whisper
+        // of it, so the control answers before it is clicked.
+        _host.Background = !_on && over ? Tokens.Brushes.SegmentHover : Tokens.Brushes.None;
+        if (_glyph is not null)
+        {
+            _glyph.Ink = _accent?.Ink ?? Tokens.Brushes.BrandStrong;
+            _glyph.Opacity = _on || over ? 1 : Tokens.Opacity.GlyphResting;
         }
     }
 }
 
 /// <summary>
 /// One section in the masthead's tabs: held on the house bed with a white thumb that glides to the
-/// current one, the same shape as every toggle. A count rides beside the name as a chip.
+/// current one, the same shape as every toggle, each section led by its own small tinted mark. A
+/// count rides beside the name as a chip.
 /// </summary>
 /// <remarks>
 /// Dave, 05/10/2026, on an underline under bare words: it read as floating text. Words always sit
@@ -275,31 +348,20 @@ public sealed class Segmented : Border
 /// </remarks>
 public sealed class NavLink : Button
 {
-    private readonly TextBlock _label;
     private readonly Chip _count;
     private readonly Border _surface;
+    private readonly SegmentFace _face;
     private bool _active;
 
-    /// <summary>Creates the link.</summary>
-    public NavLink(string text)
+    /// <summary>Creates the link, optionally led by <paramref name="icon"/> in <paramref name="accent"/>'s hue.</summary>
+    public NavLink(string text, string? icon = null, Tokens.Accent? accent = null)
     {
-        _label = new TextBlock
-        {
-            Text = text,
-            FontFamily = Tokens.Fonts.Sans,
-            FontSize = Tokens.Fonts.Tab,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Tokens.Brushes.Muted,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        _surface = new Border { Height = Tokens.Layout.SegmentHeight };
+        _face = new SegmentFace(_surface, text, icon, accent, Tokens.Fonts.Tab);
         _count = new Chip(string.Empty, Tokens.Accent.Amber) { IsVisible = false, Height = Tokens.Layout.CountChipHeight };
-        _surface = new Border
-        {
-            Background = Tokens.Brushes.None,
-            Height = Tokens.Layout.SegmentHeight,
-            Padding = new Thickness(Tokens.Layout.NavPillPadX, 0),
-            Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center, Children = { _label, _count } },
-        };
+        _face.Content.Children.Add(_count);
+        _surface.Padding = _face.Padding;
+        _surface.Child = _face.Content;
         Background = Tokens.Brushes.None;
         BorderThickness = new Thickness(0);
         Padding = new Thickness(0);
@@ -311,8 +373,8 @@ public sealed class NavLink : Button
     /// <summary>The link's text.</summary>
     public string Text
     {
-        get => _label.Text ?? string.Empty;
-        set => _label.Text = value;
+        get => _face.Label.Text ?? string.Empty;
+        set => _face.Label.Text = value;
     }
 
     /// <summary>Something waiting in the section, shown as a chip beside the label; nothing at zero.</summary>
@@ -331,8 +393,7 @@ public sealed class NavLink : Button
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Hair };
         foreach (var link in links) row.Children.Add(link);
-        var thumb = new Border { Background = Tokens.Brushes.Card, CornerRadius = new CornerRadius(Tokens.Radius.Segment), BoxShadow = Tokens.Shadow.NavActive };
-        var glide = new GlidePanel(row, thumb, () => links.FirstOrDefault(l => l.IsActive), link => link.Bounds);
+        var glide = new GlidePanel(row, Thumb.Make(), () => links.FirstOrDefault(l => l.IsActive), link => link.Bounds);
         foreach (var link in links) link._glide = glide;
         return new Border
         {
@@ -351,16 +412,6 @@ public sealed class NavLink : Button
     public bool IsActive
     {
         get => _active;
-        set { _active = value; Paint(); _glide?.Refresh(); }
+        set { _active = value; _face.Paint(value); _glide?.Refresh(); }
     }
-
-    /// <inheritdoc />
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-        if (change.Property == IsPointerOverProperty) Paint();
-    }
-
-    private void Paint() =>
-        _label.Foreground = _active ? Tokens.Brushes.Ink : IsPointerOver ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
 }

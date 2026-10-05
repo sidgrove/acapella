@@ -103,7 +103,15 @@ public sealed class TranscriptionsView : UserControl
         Tools = _held;
         // Padding inside the scroll viewer, not margin outside it: the viewer clips to its
         // bounds, and without room the cards' edges are cut off.
-        Content = new ScrollViewer { Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
+        // The day's band is the list's header and stays pinned at the top of the card while the
+        // rows scroll under it, the next day taking over as its band reaches the top (Dave,
+        // 05/10/2026: "should we not just freeze the header ... it just looks a bit messy when I
+        // scroll down"). It sits outside the scroll viewer, so the card's rounded top and the
+        // margin above it never move; only the rows do.
+        _scroll = new ScrollViewer { Content = _list, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
+        _scroll.ScrollChanged += (_, _) => PinBand();
+        _pinned = new Border { Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0), IsVisible = false };
+        Content = new DockPanel { Children = { Panels.Docked(_pinned, Dock.Top), _scroll } };
 
         // The store changes on the engine's thread when a dictation completes; the list
         // must only be touched on the UI thread. One new record is one new row at the
@@ -111,6 +119,41 @@ public sealed class TranscriptionsView : UserControl
         // to two seconds with it shown, and the paste of the next dictation waited on it.
         _store.Changed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(OnStoreChanged);
         Refresh();
+    }
+
+    private readonly ScrollViewer _scroll;
+    private readonly Border _pinned;
+    private DateTime? _pinnedDay;
+
+    /// <summary>The day the pinned band names. Exposed for headless tests.</summary>
+    public DateTime? PinnedDay => _pinnedDay;
+
+    /// <summary>
+    /// Puts the band of the day at the top of the view in the pinned header: the last day whose
+    /// band has reached the top. The first day's own band in the list is folded away, because
+    /// the pinned one stands in for it.
+    /// </summary>
+    private void PinBand()
+    {
+        DayBand? current = null;
+        foreach (var child in _list.Children)
+        {
+            if (child is not DayBand band) continue;
+            if (current is null || band.Bounds.Y - _list.Margin.Top <= _scroll.Offset.Y + 1) current = band;
+            else break;
+        }
+
+        if (current is null)
+        {
+            _pinned.IsVisible = false;
+            _pinnedDay = null;
+            return;
+        }
+
+        _pinned.IsVisible = true;
+        if (_pinnedDay == current.Day && _pinned.Child is not null) return;
+        _pinnedDay = current.Day;
+        _pinned.Child = BandFace(current.Day, current.Count, current.Day == DateTime.Today ? _summary : null, pinned: true);
     }
 
     /// <summary>Search and the "..." menu, for the window's title row.</summary>
@@ -181,6 +224,7 @@ public sealed class TranscriptionsView : UserControl
         var today = DateTime.Today;
         var todays = _store.Records.Where(r => r.At.ToLocalTime().Date == today).ToList();
         if (todays.Count == 0) return;
+        _pinnedDay = null;
         var count = new Chip(todays.Count == 1 ? "1 dictation" : $"{todays.Count} dictations", Tokens.Accent.Brand, Icons.Mic);
         ToolTip.SetTip(count, $"{_store.Records.Count:N0} kept in all");
         _summary.Children.Add(count);
@@ -257,7 +301,7 @@ public sealed class TranscriptionsView : UserControl
             {
                 _lastDay = Day(record);
                 var day = _lastDay.Value;
-                _list.Children.Add(DayHeading(day, _matches.Count(r => Day(r) == day), first: _list.Children.Count == 0, figures: day == DateTime.Today ? _summary : null));
+                _list.Children.Add(new DayBand(day, _matches.Count(r => Day(r) == day), first: _list.Children.Count == 0));
             }
             _list.Children.Add(BuildRow(record));
         }
@@ -292,15 +336,37 @@ public sealed class TranscriptionsView : UserControl
         for (var i = 0; i < children.Count; i++)
         {
             if (children[i] is not Row row) continue;
-            row.Shape(first: i == 0 || children[i - 1] is not Row, last: i + 1 >= children.Count || children[i + 1] is not Row);
+            row.Shape(first: i == 0 || children[i - 1] is not Row, last: i + 1 >= children.Count || children[i + 1] is not (Row or DayBand));
         }
+        Avalonia.Threading.Dispatcher.UIThread.Post(PinBand, Avalonia.Threading.DispatcherPriority.Loaded);
     }
 
     /// <summary>
-    /// The day's band: "Today", "Yesterday" or "Tuesday 29/09" with its count, on the soft header
-    /// tint at the top of the day's card (rules by weight: a tinted band marks a group).
+    /// A day's band in the list: the header between one day's rows and the next. The first one
+    /// is folded away, since the pinned header above the list shows it.
     /// </summary>
-    private static Border DayHeading(DateTime day, int count, bool first, WrapPanel? figures)
+    private sealed class DayBand : Border
+    {
+        public DayBand(DateTime day, int count, bool first)
+        {
+            Day = day;
+            Count = count;
+            IsVisible = !first;
+            Child = BandFace(day, count, null, pinned: false);
+        }
+
+        public DateTime Day { get; }
+
+        public int Count { get; }
+    }
+
+    /// <summary>
+    /// What a band shows: "Today", "Yesterday" or "Tuesday 29/09" on the soft header tint, with
+    /// the day's count, or today's figures as chips (rules by weight: a tinted band marks a
+    /// group). Pinned, it is the card's rounded top; in the list, it runs edge to edge between
+    /// two days' rows with a firmer line above it.
+    /// </summary>
+    private static Border BandFace(DateTime day, int count, WrapPanel? figures, bool pinned)
     {
         var today = DateTime.Today;
         var name = day == today ? "Today" : day == today.AddDays(-1) ? "Yesterday"
@@ -325,11 +391,10 @@ public sealed class TranscriptionsView : UserControl
         {
             Background = Tokens.Brushes.Surface,
             BorderBrush = Tokens.Brushes.CardBorder,
-            BorderThickness = new Thickness(Tokens.Border.Hairline),
-            CornerRadius = new CornerRadius(Tokens.Radius.Card, Tokens.Radius.Card, 0, 0),
-            Padding = new Thickness(Tokens.Space.Roomy, figures is null ? Tokens.Space.Snug + 1 : Tokens.Space.Snug - 2, Tokens.Space.Base, figures is null ? Tokens.Space.Snug + 1 : Tokens.Space.Snug - 2),
-            Margin = new Thickness(0, first ? 0 : Tokens.Space.Wide, 0, 0),
-            MinHeight = Tokens.Layout.DayBandHeight,
+            BorderThickness = pinned ? new Thickness(Tokens.Border.Hairline) : new Thickness(Tokens.Border.Hairline, Tokens.Border.Hairline, Tokens.Border.Hairline, Tokens.Border.Hairline),
+            CornerRadius = pinned ? new CornerRadius(Tokens.Radius.Card, Tokens.Radius.Card, 0, 0) : default,
+            Padding = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Base, 0),
+            Height = Tokens.Layout.DayBandHeight,
             Child = content,
         };
     }

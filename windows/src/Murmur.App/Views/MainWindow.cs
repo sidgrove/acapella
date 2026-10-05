@@ -93,9 +93,9 @@ public sealed class MainWindow : ShellWindow
         _preview.TextWrapping = TextWrapping.Wrap;
         _preview.IsVisible = false;
 
-        _transcriptionsLink = new NavLink("Dictations") { IsActive = true };
-        _dictionaryLink = new NavLink("Dictionary");
-        _settingsLink = new NavLink("Settings");
+        _transcriptionsLink = new NavLink("Dictations", Icons.Mic, Tokens.Accent.Brand) { IsActive = true };
+        _dictionaryLink = new NavLink("Dictionary", Icons.Book, Tokens.Accent.Emerald);
+        _settingsLink = new NavLink("Settings", Icons.Sliders, Tokens.Accent.Plum);
         _transcriptionsLink.Click += (_, _) => ShowSection(transcriptions: true);
         _dictionaryLink.Click += (_, _) => ShowSection(transcriptions: false);
         _settingsLink.Click += (_, _) => ShowSettings();
