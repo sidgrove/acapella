@@ -123,7 +123,9 @@ public sealed class MainWindow : ShellWindow
 
         if (_composition is not null) _overlay = new OverlayWindow(PlatformFactory.CreateWindowTweaks());
 
-        Content = Frame(AppPaths.ProductName, BuildBody(), BuildModeSelector(), byline: "by Sidgrove Intelligence");
+        // The mark alone top left, no name and no byline: the window's OS title still says Acapella
+        // for the taskbar and screen readers (Dave, 05/10/2026: "just keep it sharp").
+        Content = Frame(null, BuildBody(), BuildModeSelector());
         BindShortcuts();
         ShowSection(transcriptions: true);
         RefreshHint();

@@ -11,8 +11,8 @@ using Murmur.Core;
 namespace Murmur.App.Views;
 
 /// <summary>
-/// A Sidgrove window: the wash background, a slim caption strip with the mark and a
-/// Very Vogue title (and its byline, on the same line) in place of the OS title bar, thin
+/// A Sidgrove window: the wash background, a slim caption strip with the mark (and, on a sheet,
+/// a Very Vogue title) in place of the OS title bar, thin
 /// glyphs for the window controls. The strip and the white margin match Setlist's.
 /// </summary>
 /// <remarks>
@@ -60,9 +60,10 @@ public abstract class ShellWindow : Window
     /// <summary>
     /// Wraps <paramref name="body"/> beneath the caption strip. The strip sits on plain
     /// white; the body sits on the wash inside a rounded, hairline-edged panel with a slim
-    /// margin, so the hero is sealed off rather than running to the window edge.
+    /// margin, so the hero is sealed off rather than running to the window edge. A null
+    /// <paramref name="title"/> leaves the mark alone top left.
     /// </summary>
-    protected Control Frame(string title, Control body, Control? trailing = null, string? byline = null)
+    protected Control Frame(string? title, Control body, Control? trailing = null, string? byline = null)
     {
         var panel = new Border
         {
@@ -80,7 +81,7 @@ public abstract class ShellWindow : Window
         return root;
     }
 
-    private Border BuildCaption(string title, Control? trailing, string? byline)
+    private Border BuildCaption(string? title, Control? trailing, string? byline)
     {
         // The site's header: the wordmark alone on the left, nav on the right. It fills what the
         // right leaves, less a little air, so a narrow window trims it rather than overlapping.

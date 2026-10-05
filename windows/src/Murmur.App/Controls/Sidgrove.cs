@@ -1071,6 +1071,11 @@ public sealed class NavLink : Button
 /// the two apps are siblings and their title rows match (Dave, 04/10/2026).
 /// </summary>
 /// <remarks>
+/// With no name it is the mark alone: the main window shows only the icon top left, because the
+/// app does not need to say it is Acapella (Dave, 05/10/2026). The window's OS title keeps the name
+/// for the taskbar and screen readers.
+/// </remarks>
+/// <remarks>
 /// The name trims with an ellipsis when the strip is too narrow for it. The byline drops out once
 /// it would have less than <see cref="Tokens.Layout.BylineMinWidth"/>; it is laid out to nothing
 /// rather than hidden, because changing visibility inside a layout pass starts another one.
@@ -1078,12 +1083,18 @@ public sealed class NavLink : Button
 public sealed class Wordmark : Panel
 {
     private readonly LogoMark _mark = new();
-    private readonly TextBlock _name;
+    private readonly TextBlock? _name;
     private readonly TextBlock? _byline;
 
-    /// <summary>Creates the wordmark, with <paramref name="byline"/> after the name when given.</summary>
-    public Wordmark(string text, string? byline = null)
+    /// <summary>
+    /// Creates the wordmark, with <paramref name="byline"/> after the name when given. A null or
+    /// empty <paramref name="text"/> gives the mark alone, and any byline is ignored.
+    /// </summary>
+    public Wordmark(string? text, string? byline = null)
     {
+        Children.Add(_mark);
+        if (string.IsNullOrEmpty(text)) return;
+
         _name = new TextBlock
         {
             Text = text,
@@ -1095,7 +1106,6 @@ public sealed class Wordmark : Panel
             TextWrapping = TextWrapping.NoWrap,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        Children.Add(_mark);
         Children.Add(_name);
 
         if (byline is null) return;
@@ -1123,10 +1133,12 @@ public sealed class Wordmark : Panel
     protected override Size MeasureOverride(Size availableSize)
     {
         _mark.Measure(Size.Infinity);
+        ShowsByline = false;
+        if (_name is null) return _mark.DesiredSize;
+
         _name.Measure(new Size(Math.Max(0, availableSize.Width - TextLeft), double.PositiveInfinity));
         var width = TextLeft + _name.DesiredSize.Width;
 
-        ShowsByline = false;
         if (_byline is not null)
         {
             var room = availableSize.Width - width - Tokens.Layout.BylineGap;
@@ -1146,6 +1158,7 @@ public sealed class Wordmark : Panel
     {
         var mark = _mark.DesiredSize;
         _mark.Arrange(new Rect(0, (finalSize.Height - mark.Height) / 2, mark.Width, mark.Height));
+        if (_name is null) return finalSize;
 
         // The name's baseline sits where Setlist's does in its strip, held from the middle so the
         // line keeps its place should the strip ever be laid out taller.

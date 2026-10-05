@@ -83,13 +83,16 @@ public sealed class SyncCardTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void The_settings_page_has_a_sync_card_and_the_header_a_byline()
+    public void The_settings_page_has_a_sync_card_and_the_header_no_name_or_byline()
     {
         var (composition, _) = Build();
         var main = new MainWindow(composition) { Width = 1080, Height = 780 };
         main.Show();
 
-        main.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ShouldContain("by Sidgrove Intelligence");
+        // The title row is the icon alone (Dave, 05/10/2026): no name and no byline.
+        var texts = main.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
+        texts.ShouldNotContain("by Sidgrove Intelligence");
+        texts.ShouldNotContain("Acapella");
         main.ShowSettings();
         main.UpdateLayout();
         main.GetVisualDescendants().OfType<SyncPart>().ShouldHaveSingleItem();

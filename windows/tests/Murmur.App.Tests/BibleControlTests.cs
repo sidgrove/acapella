@@ -171,7 +171,12 @@ public sealed class BibleControlTests
         {
             main.Show();
             main.UpdateLayout();
-            var strip = (Border)main.GetVisualDescendants().OfType<Wordmark>().Single().GetVisualParent()!.GetVisualParent()!;
+            var wordmark = main.GetVisualDescendants().OfType<Wordmark>().Single();
+            // The icon alone top left: no name and no byline (Dave, 05/10/2026).
+            wordmark.Children.OfType<TextBlock>().ShouldBeEmpty();
+            wordmark.Children.OfType<LogoMark>().Single().Bounds.Center.Y.ShouldBe(Tokens.Layout.CaptionHeight / 2, 0.5);
+            main.Title.ShouldBe(Murmur.Abstractions.AppPaths.ProductName);
+            var strip = (Border)wordmark.GetVisualParent()!.GetVisualParent()!;
             strip.Bounds.Height.ShouldBe(Tokens.Layout.CaptionHeight);
             var right = ((DockPanel)strip.Child!).Children[0];
             var centre = Tokens.Layout.CaptionHeight / 2;
