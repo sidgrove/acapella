@@ -234,8 +234,15 @@ public sealed class SgButton : Button
         Danger,
     }
 
-    private readonly Kind _kind;
+    private Kind _kind;
     private readonly Border _skin = new();
+
+    /// <summary>The variant; changing it repaints, as a destructive step does once it is armed.</summary>
+    public Kind Variant
+    {
+        get => _kind;
+        set { _kind = value; Paint(); }
+    }
 
     /// <summary>Creates a button with a text label, or any content, and an optional leading icon.</summary>
     /// <param name="label">The words: a verb.</param>
@@ -627,6 +634,8 @@ public sealed class LevelBars : Control
             var x = (i + 0.5) / count;
             _weights[i] = 0.45 + 0.55 * Math.Sin(x * Math.PI);
             _phases[i] = (i * 2.399) % (2 * Math.PI);
+            // Born at rest, so the first frame already shows the resting shape.
+            _heights[i] = IdleTarget(i);
         }
 
         Width = count * (Tokens.Layout.BarWidth + Tokens.Layout.BarGap) - Tokens.Layout.BarGap;
@@ -660,12 +669,16 @@ public sealed class LevelBars : Control
             var wobble = 0.65 + 0.35 * Math.Sin(_time * 3.1 + _phases[i]);
             var target = IsLive
                 ? Tokens.Layout.BarMinFraction + (1 - Tokens.Layout.BarMinFraction) * level * _weights[i] * wobble
-                : Tokens.Layout.BarMinFraction + Tokens.Motion.BarIdleBreath * (0.5 + 0.5 * Math.Sin(_time * 1.2 + _phases[i]));
+                : IdleTarget(i) + Tokens.Motion.BarIdleBreath * Math.Sin(_time * 1.2 + _phases[i]);
 
             var rate = target > _heights[i] ? Tokens.Motion.BarAttack : Tokens.Motion.BarRelease;
             _heights[i] += (target - _heights[i]) * rate;
         }
     }
+
+    // A low voice shape: tallest in the middle, with each bar's own weight so it reads as speech.
+    private double IdleTarget(int i) =>
+        Tokens.Layout.BarMinFraction + Tokens.Motion.BarIdleShape * _weights[i] * _weights[i] * (0.7 + 0.3 * Math.Abs(Math.Sin(_phases[i])));
 
     /// <inheritdoc />
     public override void Render(DrawingContext context)
@@ -710,80 +723,6 @@ public sealed class LogoMark : Control
         context.DrawImage(artwork, new Rect(artwork.Size), destination);
     }
 }
-/// <summary>
-/// The pill nav. <c>PillNav.tsx</c>: a translucent ink bed, the active pill solid white and
-/// lifted, bold brand-strong text; inactive muted. Selection by elevation and weight, never hue.
-/// </summary>
-public sealed class Segmented : Border
-{
-    private readonly List<(Border Pill, TextBlock Label)> _segments = [];
-
-    /// <summary>Raised with the index of the chosen segment.</summary>
-    public event EventHandler<int>? Selected;
-
-    /// <summary>Builds the control.</summary>
-    public Segmented(IEnumerable<string> labels, int selected = 0)
-    {
-        Background = Tokens.Brushes.ToggleBed;
-        CornerRadius = new CornerRadius(Tokens.Radius.Button);
-        Padding = new Thickness(Tokens.Space.TrackInset);
-        HorizontalAlignment = HorizontalAlignment.Left;
-
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Hair };
-        var index = 0;
-        foreach (var label in labels)
-        {
-            var i = index++;
-            var text = new TextBlock
-            {
-                Text = label,
-                FontFamily = Tokens.Fonts.Sans,
-                FontSize = Tokens.Fonts.Small,
-                FontWeight = FontWeight.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            var pill = new Border
-            {
-                Child = text,
-                CornerRadius = new CornerRadius(Tokens.Radius.Segment),
-                Padding = new Thickness(Tokens.Layout.NavPillPadX, 0),
-                Height = Tokens.Layout.SegmentHeight,
-                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
-                Transitions =
-                [
-                    new BrushTransition { Property = BackgroundProperty, Duration = Tokens.Motion.Quick },
-                ],
-            };
-            pill.PointerPressed += (_, _) => { Select(i); Selected?.Invoke(this, i); };
-            pill.PointerEntered += (_, _) => { if (!IsActive(i)) { pill.Background = Tokens.Brushes.NavHover; text.Foreground = Tokens.Brushes.BrandStrong; } };
-            pill.PointerExited += (_, _) => { if (!IsActive(i)) { pill.Background = Tokens.Brushes.None; text.Foreground = Tokens.Brushes.Muted; } };
-            _segments.Add((pill, text));
-            row.Children.Add(pill);
-        }
-
-        Child = row;
-        Select(selected);
-    }
-
-    private int _active = -1;
-
-    private bool IsActive(int i) => _active == i;
-
-    /// <summary>Sets the active segment without raising <see cref="Selected"/>.</summary>
-    public void Select(int index)
-    {
-        _active = index;
-        for (var i = 0; i < _segments.Count; i++)
-        {
-            var active = i == index;
-            _segments[i].Pill.Background = active ? Tokens.Brushes.Card : Tokens.Brushes.None;
-            _segments[i].Pill.BoxShadow = active ? Tokens.Shadow.NavActive : Tokens.Shadow.None;
-            _segments[i].Label.Foreground = active ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
-            _segments[i].Label.FontWeight = active ? FontWeight.Bold : FontWeight.SemiBold;
-        }
-    }
-}
-
 /// <summary>Text fields on the kit's terms: 34px, 12px radius, panel border, brand focus.</summary>
 public static class Field
 {
@@ -969,102 +908,6 @@ public sealed class Badge : Border
         _dot.IsLive = live;
     }
 }
-
-/// <summary>
-/// One segment of a section switcher: muted at rest, the current one a white pill lifted off
-/// the bed in the brand ink. Selection by elevation and weight, never hue. A count rides
-/// beside the label as a chip.
-/// </summary>
-public sealed class NavLink : Button
-{
-    private readonly TextBlock _label;
-    private readonly Chip _count;
-    private readonly Border _surface;
-    private bool _active;
-
-    /// <summary>Creates the link.</summary>
-    public NavLink(string text)
-    {
-        _label = new TextBlock
-        {
-            Text = text,
-            FontFamily = Tokens.Fonts.Sans,
-            FontSize = Tokens.Fonts.Tab,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Tokens.Brushes.Muted,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        _count = new Chip(string.Empty, Tokens.Accent.Amber) { IsVisible = false, Height = Tokens.Layout.CountChipHeight };
-        _surface = new Border
-        {
-            CornerRadius = new CornerRadius(Tokens.Radius.Segment),
-            Padding = new Thickness(Tokens.Layout.NavPillPadX, 0),
-            Height = Tokens.Layout.SegmentHeight,
-            Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Chip, VerticalAlignment = VerticalAlignment.Center, Children = { _label, _count } },
-        };
-        Background = Tokens.Brushes.None;
-        BorderThickness = new Thickness(0);
-        Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
-        Template = new FuncControlTemplate<NavLink>((_, _) => _surface);
-    }
-
-    /// <summary>The link's text.</summary>
-    public string Text
-    {
-        get => _label.Text ?? string.Empty;
-        set => _label.Text = value;
-    }
-
-    /// <summary>Something waiting in the section, shown as a chip beside the label; nothing at zero.</summary>
-    public int Count
-    {
-        get => int.TryParse(_count.Text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0;
-        set
-        {
-            _count.Text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            _count.IsVisible = value > 0;
-        }
-    }
-
-    /// <summary>A bed holding a row of links: the segmented track.</summary>
-    public static Border Track(params Control[] links)
-    {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Space.Hair };
-        foreach (var link in links) row.Children.Add(link);
-        return new Border
-        {
-            Background = Tokens.Brushes.ToggleBed,
-            CornerRadius = new CornerRadius(Tokens.Radius.Button),
-            Padding = new Thickness(Tokens.Space.TrackInset),
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Child = row,
-        };
-    }
-
-    /// <summary>Whether this link is the current section.</summary>
-    public bool IsActive
-    {
-        get => _active;
-        set { _active = value; Paint(); }
-    }
-
-    /// <inheritdoc />
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-        if (change.Property == IsPointerOverProperty) Paint();
-    }
-
-    private void Paint()
-    {
-        _label.Foreground = _active || IsPointerOver ? Tokens.Brushes.BrandStrong : Tokens.Brushes.Muted;
-        _label.FontWeight = _active ? FontWeight.Bold : FontWeight.SemiBold;
-        _surface.Background = _active ? Tokens.Brushes.Card : IsPointerOver ? Tokens.Brushes.NavHover : Tokens.Brushes.None;
-        _surface.BoxShadow = _active ? Tokens.Shadow.NavActive : Tokens.Shadow.None;
-    }
-}
-
 /// <summary>
 /// The wordmark in the caption strip: the mark, the name in Very Vogue and, when given, a quiet
 /// byline after the name on the same line. Setlist's title row (its <c>FramedForm.PaintCaption</c>):

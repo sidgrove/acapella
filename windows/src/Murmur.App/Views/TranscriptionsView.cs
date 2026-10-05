@@ -32,11 +32,16 @@ public sealed class TranscriptionsView : UserControl
     private readonly StackPanel _list;
     private readonly WrapPanel _summary;
     private readonly SgButton _clear;
+    private readonly Func<string>? _shortcut;
 
-    /// <summary>Builds the view over <paramref name="store"/>.</summary>
-    public TranscriptionsView(TranscriptStore store)
+    /// <summary>
+    /// Builds the view over <paramref name="store"/>. <paramref name="shortcut"/> names the key to
+    /// press, for the empty state, which shows it as keycaps.
+    /// </summary>
+    public TranscriptionsView(TranscriptStore store, Func<string>? shortcut = null)
     {
         _store = store;
+        _shortcut = shortcut;
 
         _search = Field.Search("Search");
         // Only a real change of query rebuilds the list: the box raises TextChanged once
@@ -55,18 +60,20 @@ public sealed class TranscriptionsView : UserControl
         // A narrow window gives the day's chips the room rather than the search box.
         SizeChanged += (_, e) => _search.Width = e.NewSize.Width < Tokens.Layout.NarrowSearchBelow ? Tokens.Layout.SearchWidthNarrow : Tokens.Layout.SearchWidth;
 
-        _list = new StackPanel { Spacing = Tokens.Space.Base, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
+        _list = new StackPanel { Spacing = 0, Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy) };
         _summary = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center };
 
         // Two clicks to wipe the history, and the button says so. One click used to
         // rewrite the file on the spot with no way back.
         // A bare bin until it's pressed: rarely wanted, so it shouldn't take the toolbar's room.
-        var clear = IconAction(Icons.Trash, "Clear the whole history", danger: true);
+        // Quiet at rest (red only when something is wrong); coral once it is armed.
+        var clear = IconAction(Icons.Trash, "Clear the whole history");
         _clear = clear;
         var armed = false;
         void Disarm()
         {
             armed = false;
+            clear.Variant = SgButton.Kind.Quiet;
             clear.Content = string.Empty;
             clear.Width = Tokens.Layout.ButtonHeightSmall;
             clear.Padding = new Thickness(0);
@@ -78,6 +85,7 @@ public sealed class TranscriptionsView : UserControl
             if (!armed)
             {
                 armed = true;
+                clear.Variant = SgButton.Kind.Danger;
                 clear.Content = "Click again to clear everything";
                 clear.Width = double.NaN;
                 clear.Padding = new Thickness(Tokens.Layout.ButtonPadXSmall, 0);
@@ -135,6 +143,7 @@ public sealed class TranscriptionsView : UserControl
         {
             // Straight under the day's heading, which is already the newest day's.
             _list.Children.Insert(1, BuildRow(records[0]));
+            Seal();
             _newestShown = records[0].Id;
             _shownCount = records.Count;
             RefreshSummary();
@@ -166,8 +175,9 @@ public sealed class TranscriptionsView : UserControl
     private void RefreshSummary()
     {
         _summary.Children.Clear();
-        // With nothing kept there is nothing to count and nothing to clear.
+        // With nothing kept there is nothing to count, search or clear.
         _clear.IsVisible = _store.Records.Count > 0;
+        _search.IsVisible = _store.Records.Count > 0;
         if (_store.Records.Count == 0) return;
         var today = DateTime.Today;
         var todays = _store.Records.Where(r => r.At.ToLocalTime().Date == today).ToList();
@@ -218,12 +228,31 @@ public sealed class TranscriptionsView : UserControl
         if (_matches.Count == 0)
         {
             _list.Children.Add(_store.Records.Count == 0
-                ? Panels.EmptyState(Icons.Mic, Tokens.Accent.Brand, "No dictations yet. Press your shortcut and speak.")
+                ? FirstDictation()
                 : Panels.EmptyState(Icons.Search, Tokens.Accent.Slate, "Nothing matches that. Try another word."));
             return;
         }
 
         BuildPage();
+    }
+
+    /// <summary>
+    /// The empty history: the key to press, drawn as the key, and where the words will go. One
+    /// quiet line in a card, the Bible's empty state, with the action itself as the picture.
+    /// </summary>
+    private Border FirstDictation()
+    {
+        var key = _shortcut?.Invoke() ?? "your shortcut";
+        var hold = Text.Muted("Hold");
+        var rest = Text.Muted("and speak. Your words land wherever you're typing, and here.");
+        hold.VerticalAlignment = rest.VerticalAlignment = VerticalAlignment.Center;
+        rest.TextWrapping = TextWrapping.Wrap;
+        var line = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center, Children = { hold, KeyCaps.Make(key), rest } };
+        var row = Panels.Row(Tokens.Space.Base, new IconTile(Icons.Mic, Tokens.Accent.Brand), line);
+        row.HorizontalAlignment = HorizontalAlignment.Center;
+        var card = Card.Standard(row);
+        card.Padding = new Thickness(Tokens.Space.Wide, Tokens.Space.Section);
+        return card;
     }
 
     /// <summary>The next page of cards, carrying on under the last day's heading, and the button for more.</summary>
@@ -248,6 +277,7 @@ public sealed class TranscriptionsView : UserControl
         if (left <= 0)
         {
             _more = null;
+            Seal();
             return;
         }
         _more = new SgButton(string.Create(CultureInfo.CurrentCulture, $"Show {Math.Min(left, PageSize)} more"), SgButton.Kind.Ghost, compact: true)
@@ -258,23 +288,55 @@ public sealed class TranscriptionsView : UserControl
         ToolTip.SetTip(_more, string.Create(CultureInfo.CurrentCulture, $"{left:N0} older ones. Search looks through them all."));
         _more.Click += (_, _) => BuildPage();
         _list.Children.Add(_more);
+        Seal();
     }
 
-    /// <summary>"Today", "Yesterday" or "Tuesday 29/09", with the day's count beside it.</summary>
-    private static StackPanel DayHeading(DateTime day, int count, bool first)
+    /// <summary>
+    /// Shapes each day as one card: the heading is its top band, the rows hang beneath it with a
+    /// hairline between them, and the last row rounds the card off. Run after any change to the
+    /// list, because a row's place in its day decides its edges.
+    /// </summary>
+    private void Seal()
+    {
+        var children = _list.Children;
+        for (var i = 0; i < children.Count; i++)
+        {
+            if (children[i] is not Row row) continue;
+            row.Shape(first: i == 0 || children[i - 1] is not Row, last: i + 1 >= children.Count || children[i + 1] is not Row);
+        }
+    }
+
+    /// <summary>
+    /// The day's band: "Today", "Yesterday" or "Tuesday 29/09" with its count, on the soft header
+    /// tint at the top of the day's card (rules by weight: a tinted band marks a group).
+    /// </summary>
+    private static Border DayHeading(DateTime day, int count, bool first)
     {
         var today = DateTime.Today;
         var name = day == today ? "Today" : day == today.AddDays(-1) ? "Yesterday"
             : day.ToString(day.Year == today.Year ? "dddd dd/MM" : "dddd dd/MM/yyyy", CultureInfo.GetCultureInfo("en-GB"));
         var label = Text.Label(name);
+        label.Foreground = Tokens.Brushes.Ink;
         var tally = Text.Caption(count == 1 ? "1 dictation" : $"{count} dictations");
         tally.VerticalAlignment = VerticalAlignment.Center;
-        var row = Panels.Row(Tokens.Space.Snug, label, tally);
-        row.Margin = new Thickness(Tokens.Space.Tight, first ? 0 : Tokens.Space.Base, 0, 0);
-        return row;
+        return new Border
+        {
+            Background = Tokens.Brushes.Surface,
+            BorderBrush = Tokens.Brushes.CardBorder,
+            BorderThickness = new Thickness(Tokens.Border.Hairline),
+            CornerRadius = new CornerRadius(Tokens.Radius.Card, Tokens.Radius.Card, 0, 0),
+            Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Snug + 1),
+            Margin = new Thickness(0, first ? 0 : Tokens.Space.Wide, 0, 0),
+            Child = Panels.Row(Tokens.Space.Snug, label, tally),
+        };
     }
 
-    private Border BuildRow(TranscriptRecord record)
+    /// <summary>
+    /// One dictation: its app's mark, the words, one quiet line of where it went and how long it
+    /// took, and the time on the right. Under the pointer or the keyboard the time gives way to
+    /// the row's verbs (copy first), so a long list carries no column of identical buttons.
+    /// </summary>
+    private Row BuildRow(TranscriptRecord record)
     {
         var copy = new SgButton("Copy", SgButton.Kind.Quiet, compact: true, icon: Icons.Copy);
         copy.Click += async (_, _) =>
@@ -290,11 +352,10 @@ public sealed class TranscriptionsView : UserControl
         var delete = IconAction(Icons.Trash, "Delete this dictation", danger: true);
         delete.Click += (_, _) => _store.Remove(record.Id);
 
-        // When it was, where it went, how long it took: one quiet line, figures before words.
+        // Where it went and how long it took: one quiet line, figures before words.
         var meta = new WrapPanel { ItemSpacing = Tokens.Space.Snug, LineSpacing = Tokens.Space.Tight, VerticalAlignment = VerticalAlignment.Center };
-        var when = record.At.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
-        var where = record.App is { Length: > 0 } app ? $"  ·  {AppMark.DisplayName(app)}" : string.Empty;
-        var line = Text.Meta(string.Create(CultureInfo.CurrentCulture, $"{when}{where}  ·  {record.AudioSeconds:0.0} s spoken  ·  {record.ProcessingSeconds:0.00} s wait"));
+        var where = record.App is { Length: > 0 } app ? $"{AppMark.DisplayName(app)}  ·  " : string.Empty;
+        var line = Text.Meta(string.Create(CultureInfo.CurrentCulture, $"{where}{record.AudioSeconds:0.0} s spoken  ·  {record.ProcessingSeconds:0.00} s wait"));
         line.VerticalAlignment = VerticalAlignment.Center;
         ToolTip.SetTip(line, Route(record));
         meta.Children.Add(line);
@@ -324,7 +385,6 @@ public sealed class TranscriptionsView : UserControl
         // clean-up. Each opens under the words, on demand.
         var reveals = new StackPanel { Spacing = Tokens.Space.Snug };
         var actions = Panels.Row(Tokens.Space.Hair);
-        var hoverOnly = new List<Control> { delete };
 
         if (record.EditedText is { Length: > 0 } edited)
         {
@@ -334,7 +394,6 @@ public sealed class TranscriptionsView : UserControl
             var show = IconAction(Icons.Pen, "Show your edit");
             show.Click += (_, _) => panel.IsVisible = !panel.IsVisible;
             actions.Children.Add(show);
-            hoverOnly.Add(show);
         }
 
         if (record.RawText is { Length: > 0 } raw && raw != record.Text)
@@ -344,38 +403,88 @@ public sealed class TranscriptionsView : UserControl
             var show = IconAction(Icons.Ear, "Show what was heard");
             show.Click += (_, _) => panel.IsVisible = !panel.IsVisible;
             actions.Children.Add(show);
-            hoverOnly.Add(show);
         }
 
         actions.Children.Add(delete);
         actions.Children.Add(copy);
+        actions.HorizontalAlignment = HorizontalAlignment.Right;
         actions.VerticalAlignment = VerticalAlignment.Top;
 
-        var words = Text.Reading(record.Text);
-        var footer = new DockPanel();
-        DockPanel.SetDock(actions, Dock.Right);
-        footer.Children.Add(actions);
-        footer.Children.Add(meta);
+        var time = Text.Number(record.At.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture), Tokens.Fonts.Small, Tokens.Brushes.Faint);
+        time.FontWeight = FontWeight.SemiBold;
+        time.HorizontalAlignment = HorizontalAlignment.Right;
+        time.VerticalAlignment = VerticalAlignment.Top;
+        time.Margin = new Thickness(0, Tokens.Space.Snug, Tokens.Space.Snug, 0);
+        ToolTip.SetTip(time, record.At.ToLocalTime().ToString("dddd dd/MM/yyyy HH:mm", CultureInfo.GetCultureInfo("en-GB")));
 
-        var body = Panels.Column(Tokens.Space.Snug, words, reveals, footer);
+        var words = Text.Reading(record.Text);
+        var body = Panels.Column(Tokens.Space.Snug, words, reveals, meta);
         Control mark = record.App is { Length: > 0 } name ? new AppMark(name) : new IconTile(Icons.Mic, Tokens.Accent.Brand);
         mark.VerticalAlignment = VerticalAlignment.Top;
-        mark.Margin = new Thickness(0, Tokens.Space.Hair, 0, 0);
+        mark.Margin = new Thickness(Tokens.Space.Roomy, Tokens.Space.Roomy, 0, 0);
 
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+        // The time and the verbs share the right-hand corner, one showing at a time.
+        var corner = new Panel { Children = { time, actions }, Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Base - 2, Tokens.Space.Base, 0), MinWidth = Tokens.Layout.ButtonHeightSmall };
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+        var divider = new Border
+        {
+            Height = Tokens.Border.Hairline,
+            Background = Tokens.Brushes.Line,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(Tokens.Space.Roomy + Tokens.Layout.Tile + Tokens.Space.Roomy, 0, Tokens.Space.Roomy, 0),
+        };
+        Grid.SetColumnSpan(divider, 3);
         Grid.SetColumn(body, 1);
-        body.Margin = new Thickness(Tokens.Space.Roomy, 0, 0, 0);
+        Grid.SetColumn(corner, 2);
+        body.Margin = new Thickness(Tokens.Space.Roomy, Tokens.Space.Roomy + 2, 0, Tokens.Space.Roomy);
+        grid.Children.Add(divider);
         grid.Children.Add(mark);
         grid.Children.Add(body);
+        grid.Children.Add(corner);
 
-        var card = Card.Standard(grid, Tokens.Space.Roomy);
-        card.Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Roomy, Tokens.Space.Base, Tokens.Space.Base);
+        var row = new Row(grid, divider);
 
-        // Only the card under the pointer offers the rest; the space is kept so nothing moves.
-        foreach (var action in hoverOnly) { action.Opacity = 0; action.IsHitTestVisible = false; }
-        card.PointerEntered += (_, _) => { foreach (var action in hoverOnly) { action.Opacity = 1; action.IsHitTestVisible = true; } };
-        card.PointerExited += (_, _) => { foreach (var action in hoverOnly) { action.Opacity = 0; action.IsHitTestVisible = false; } };
-        return card;
+        // Only the row under the pointer, or holding the keyboard, offers its verbs.
+        void Offer(bool on)
+        {
+            actions.Opacity = on ? 1 : 0;
+            actions.IsHitTestVisible = on;
+            time.Opacity = on ? 0 : 1;
+            row.Background = on ? Tokens.Brushes.RowHover : Tokens.Brushes.Card;
+        }
+        Offer(false);
+        row.PointerEntered += (_, _) => Offer(true);
+        row.PointerExited += (_, _) => Offer(row.IsKeyboardFocusWithin);
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == IsKeyboardFocusWithinProperty) Offer(row.IsKeyboardFocusWithin || row.IsPointerOver);
+        };
+        return row;
+    }
+
+    /// <summary>A dictation's row: white, edged on the sides, its hairline above it unless it opens the day.</summary>
+    private sealed class Row : Border
+    {
+        private readonly Border _divider;
+
+        public Row(Grid content, Border divider)
+        {
+            Child = content;
+            _divider = divider;
+            Background = Tokens.Brushes.Card;
+            BorderBrush = Tokens.Brushes.CardBorder;
+            Transitions = [new Avalonia.Animation.BrushTransition { Property = BackgroundProperty, Duration = Tokens.Motion.Quick }];
+            Shape(first: true, last: true);
+        }
+
+        /// <summary>Sets the edges for the row's place in its day.</summary>
+        public void Shape(bool first, bool last)
+        {
+            _divider.IsVisible = !first;
+            BorderThickness = new Thickness(Tokens.Border.Hairline, 0, Tokens.Border.Hairline, last ? Tokens.Border.Hairline : 0);
+            CornerRadius = last ? new CornerRadius(0, 0, Tokens.Radius.Card, Tokens.Radius.Card) : default;
+        }
     }
 
     /// <summary>A bare icon until hovered, with its words in the tooltip.</summary>

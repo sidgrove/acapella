@@ -43,7 +43,7 @@ public sealed class HistoryScaleTests
             clock.Stop();
 
             var list = (StackPanel)view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Content is StackPanel).Content!;
-            list.Children.OfType<Border>().Count().ShouldBeLessThanOrEqualTo(TranscriptionsView.PageSize + 1, "only a page of cards, plus the button for more");
+            list.Children.OfType<Border>().Count(b => b.Child is Grid).ShouldBeLessThanOrEqualTo(TranscriptionsView.PageSize, "only a page of rows (each day's band is a border too, so rows are counted by their grid)");
             clock.ElapsedMilliseconds.ShouldBeLessThan(3000, "opening the window must not wait on thousands of cards");
 
             var more = list.Children.OfType<Avalonia.Controls.Control>().SelectMany(c => c.GetVisualDescendants().Prepend(c)).OfType<Murmur.App.Controls.SgButton>()

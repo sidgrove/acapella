@@ -29,6 +29,8 @@ public sealed class TestApp : Application
     public override void Initialize()
     {
         Murmur.App.Design.BundledFonts.Register();
+        // The headless clock never runs, so a glide would be captured where it set off from.
+        Murmur.App.Design.Tokens.Motion.Animate = false;
         Styles.Add(new FluentTheme());
     }
 }
@@ -128,6 +130,27 @@ public sealed class ControlTests
         tabs.Selected += (_, i) => chosen = i;
         tabs.Select(1);
         chosen.ShouldBe(-1, "Select must not raise");
+    }
+
+    [AvaloniaFact]
+    public void The_toggle_is_the_house_bed_and_its_thumb_sits_on_the_choice()
+    {
+        Tokens.Colors.ToggleBed.ShouldBe(Avalonia.Media.Color.FromRgb(0xEE, 0xF0, 0xF7), "ONE toggle: #eef0f7 bed, no outline");
+        var toggle = new Segmented([new Segmented.Choice("Instant", Icons.Zap, Tokens.Accent.Amber), new Segmented.Choice("Polished", Icons.Sparkles, Tokens.Accent.Plum)]);
+        var chosen = -1;
+        toggle.Selected += (_, i) => chosen = i;
+        var window = new Window { Content = toggle };
+        window.Show();
+        toggle.BorderThickness.ShouldBe(default, "no outline round the bed");
+        toggle.Press(1);
+        chosen.ShouldBe(1);
+        toggle.SelectedIndex.ShouldBe(1);
+        window.UpdateLayout();
+        var glide = (GlidePanel)toggle.Child!;
+        var second = ((StackPanel)glide.Children[1]).Children[1];
+        glide.MarkerX.ShouldBe(second.Bounds.X, 0.5, "the thumb sits under the chosen side");
+        glide.MarkerWidth.ShouldBe(second.Bounds.Width, 0.5);
+        window.Close();
     }
 
     [AvaloniaFact]

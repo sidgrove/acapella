@@ -34,3 +34,15 @@ Dave: "grab the style bible, design bible, the app bible from Sidgrove Intellige
 - **Lists:** the history is grouped under day headings and builds 200 cards at a time; the dictionary is one row per word it writes, with every way it was heard as a chip; switching off and deleting happen in the editor.
 
 Visual check: `ACAPELLA_VISUAL_DIR=<folder>` with the `VisualTourTests` test renders every screen against sample data; set `ACAPELLA_ICON_SEED` to a folder of app icon PNGs to see real marks in the shots.
+
+## The toggles and the history, 5 October 2026
+
+Dave: "I don't really like the toggles; they are a bit shit if I'm honest with you. Can we have more joy there?"
+
+- **One toggle, the house rule:** `#eef0f7` bed, no outline, a white thumb that glides to the choice (`Segmented`, `GlidePanel`). The old bed was the darker `#e6e9f1` nav tray, which read as a grey box; the mode toggle and the section tabs were the same tray twice. The mode toggle wears a bolt (Instant, amber) and sparkles (Polished, plum), coloured only while chosen.
+- **Section tabs are navigation, not a toggle:** words on the page with a brand underline that glides under the current one (`NavLink.Track`). "Transcriptions" is now "Dictations", the word the title uses.
+- **Status card is one line,** with the voice bars always there as a calm resting waveform; the "On" label went (the switch says it).
+- **History is one card per day:** the day is the card's tinted top band, rows hang beneath it with an inset hairline, the time sits on the right and gives way to the row's verbs (copy first) under the pointer or keyboard. No column of identical Copy buttons; the bin is quiet until armed.
+- **Empty history** shows the key to press as keycaps.
+
+Before and after: `docs/screenshots/2026-10-05-bible/`.

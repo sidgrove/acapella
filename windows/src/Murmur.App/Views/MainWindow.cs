@@ -44,7 +44,6 @@ public sealed class MainWindow : ShellWindow
     private readonly DispatcherTimer _poll;
     private readonly OverlayWindow? _overlay;
     private Controls.Switch? _enabled;
-    private TextBlock? _enabledLabel;
 
     private TranscriptionsView? _transcriptionsView;
     private DictionaryView? _dictionaryView;
@@ -88,12 +87,12 @@ public sealed class MainWindow : ShellWindow
         _counter.IsVisible = false;
         _shortcut = new Border { VerticalAlignment = VerticalAlignment.Center };
         _readoutLabel = Text.Eyebrow("IDLE");
-        _bars = new LevelBars(Tokens.Layout.BarsCountSmall, Tokens.Layout.BarsHeightSmall) { VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+        _bars = new LevelBars(Tokens.Layout.BarsCountSmall, Tokens.Layout.BarsHeightSmall) { VerticalAlignment = VerticalAlignment.Center };
         _preview = Text.Muted(string.Empty);
         _preview.TextWrapping = TextWrapping.Wrap;
         _preview.IsVisible = false;
 
-        _transcriptionsLink = new NavLink("Transcriptions") { IsActive = true };
+        _transcriptionsLink = new NavLink("Dictations") { IsActive = true };
         _dictionaryLink = new NavLink("Dictionary");
         _settingsLink = new NavLink("Settings");
         _transcriptionsLink.Click += (_, _) => ShowSection(transcriptions: true);
@@ -216,20 +215,20 @@ public sealed class MainWindow : ShellWindow
         RefreshHint();
     }
 
-    /// <summary>Instant or Polished, in the caption: the one choice made many times a day.</summary>
-    private Border BuildModeSelector()
+    /// <summary>
+    /// Instant or Polished, in the title row: the one choice made many times a day. The house
+    /// toggle, each side wearing its own small mark, a bolt for straight from the microphone and
+    /// sparkles for the clean-up, coloured only while it is the one in use.
+    /// </summary>
+    private Segmented BuildModeSelector()
     {
-        var instant = new NavLink("Instant");
-        var polished = new NavLink("Polished");
-        ToolTip.SetTip(instant, "Typed exactly as heard, on this machine, with no clean-up.");
-        ToolTip.SetTip(polished, "Tidied by Gemini before it's typed: punctuation, self-corrections and your house style.");
+        var mode = new Segmented(
+        [
+            new Segmented.Choice("Instant", Icons.Zap, Tokens.Accent.Amber, "Instant: typed exactly as heard, on this machine, with no clean-up."),
+            new Segmented.Choice("Polished", Icons.Sparkles, Tokens.Accent.Plum, "Polished: tidied by Gemini before it's typed, with punctuation, self-corrections and your house style."),
+        ], _composition?.Settings.Data.AiCleanup == true ? 1 : 0);
 
-        void Refresh()
-        {
-            var usePolished = _composition?.Settings.Data.AiCleanup == true;
-            instant.IsActive = !usePolished;
-            polished.IsActive = usePolished;
-        }
+        void Refresh() => mode.Select(_composition?.Settings.Data.AiCleanup == true ? 1 : 0);
 
         void Choose(bool usePolished)
         {
@@ -238,14 +237,13 @@ public sealed class MainWindow : ShellWindow
                 _composition.Settings.Update(_composition.Settings.Data with { AiCleanup = usePolished });
         }
 
-        instant.IsEnabled = polished.IsEnabled = _composition is not null;
-        instant.Click += (_, _) => Choose(false);
-        polished.Click += (_, _) => Choose(true);
+        mode.IsEnabled = _composition is not null;
+        // A choice refused mid-dictation snaps back to the mode still in use.
+        mode.Selected += (_, index) => { Choose(index == 1); Refresh(); };
         if (_composition is not null)
             _composition.Settings.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
-        Refresh();
 
-        return NavLink.Track(instant, polished);
+        return mode;
     }
 
     private Border BuildBody()
@@ -284,25 +282,24 @@ public sealed class MainWindow : ShellWindow
     }
 
     /// <summary>
-    /// The status card: a tile whose hue is the state, the state in words, the shortcut as
-    /// keycaps, and the switch. While recording the timer and the bars join it; a fault is
-    /// one coral line inside it, never a banner of its own.
+    /// The status card, one line: a tile whose hue is the state, the state in words, the
+    /// shortcut as keycaps, the voice bars and the switch. The bars are always there, breathing
+    /// faintly at rest and rising with the voice, so the card is alive before anyone speaks; a
+    /// fault is one coral line inside it, never a banner of its own.
     /// </summary>
     private Border BuildStatus()
     {
         _enabled = new Controls.Switch { IsChecked = _composition?.Settings.Data.IsEnabled ?? true, VerticalAlignment = VerticalAlignment.Center };
         _enabled.IsCheckedChanged += (_, _) => SetEnabled(_enabled.IsChecked == true);
-        _enabledLabel = Text.Eyebrow(_enabled.IsChecked == true ? "On" : "Off");
-        _enabledLabel.VerticalAlignment = VerticalAlignment.Center;
-        ToolTip.SetTip(_enabled, "Off stops Acapella listening for your shortcut without quitting it.");
+        ToolTip.SetTip(_enabled, "Listening for your shortcut. Switch off to pause Acapella without quitting it.");
+        Avalonia.Automation.AutomationProperties.SetName(_enabled, "Listen for the shortcut");
 
         var stateLine = Panels.Row(Tokens.Space.Snug, _stateTitle, _counter);
-        var words = Panels.Column(Tokens.Space.Tight, stateLine, _shortcut);
-        words.VerticalAlignment = VerticalAlignment.Center;
-        // The same height in every state, so pausing never nudges the list below.
-        words.MinHeight = Tokens.Layout.StatusWordsHeight;
+        _shortcut.Margin = new Thickness(Tokens.Space.Snug, 0, 0, 0);
+        var words = Panels.Row(Tokens.Space.Snug, stateLine, _shortcut);
+        words.MinHeight = Tokens.Layout.TileLead;
 
-        var right = Panels.Row(Tokens.Space.Base, _bars, Panels.Row(Tokens.Space.Snug, _enabled, _enabledLabel));
+        var right = Panels.Row(Tokens.Space.Roomy, _bars, _enabled);
         var top = new DockPanel();
         DockPanel.SetDock(right, Dock.Right);
         top.Children.Add(right);
@@ -310,7 +307,7 @@ public sealed class MainWindow : ShellWindow
 
         _preview.Margin = new Thickness(Tokens.Layout.TileLead + Tokens.Space.Base, Tokens.Space.Snug, 0, 0);
         var card = Card.Standard(Panels.Column(0, top, _preview, _fault), Tokens.Space.Roomy);
-        card.Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Base);
+        card.Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Base, Tokens.Space.Wide, Tokens.Space.Base);
         card.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy);
         return card;
     }
@@ -373,7 +370,7 @@ public sealed class MainWindow : ShellWindow
 
         if (transcriptions)
         {
-            _transcriptionsView ??= new TranscriptionsView(_composition.Transcripts);
+            _transcriptionsView ??= new TranscriptionsView(_composition.Transcripts, () => KeyName);
             _sectionHost.Content = _transcriptionsView;
         }
         else
@@ -520,7 +517,6 @@ public sealed class MainWindow : ShellWindow
     /// <summary>Pauses or resumes the key without quitting.</summary>
     private void SetEnabled(bool on)
     {
-        if (_enabledLabel is not null) _enabledLabel.Text = on ? "On" : "Off";
         if (_composition is not null && _composition.Settings.Data.IsEnabled != on)
         {
             _composition.Settings.Update(_composition.Settings.Data with { IsEnabled = on });
@@ -533,7 +529,6 @@ public sealed class MainWindow : ShellWindow
 
     private void SetState(bool recording, bool transcribing)
     {
-        _bars.IsVisible = recording;
         _counter.IsVisible = recording || transcribing;
         var off = _composition is not null && !_composition.Settings.Data.IsEnabled;
         if (off && !recording && !transcribing)

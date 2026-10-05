@@ -208,8 +208,12 @@ public static class Tokens
         /// <summary>Cards. Opaque white, always.</summary>
         public static Color Card => Rgb(0xFFFFFF);
 
-        /// <summary>The segmented control's bed. <c>PILL_NAV_BED</c>.</summary>
-        public static Color ToggleBed => Rgb(0xE6E9F1);
+        /// <summary>
+        /// The one toggle's bed: the house rule, "ONE toggle: #eef0f7 bed, no outline". It was the
+        /// darker <c>#e6e9f1</c> nav bed, which read as a grey tray (Dave, 05/10/2026: "I don't
+        /// really like the toggles").
+        /// </summary>
+        public static Color ToggleBed => Rgb(0xEEF0F7);
 
         /// <summary>Column headers and group labels. <c>text-col</c>.</summary>
         public static Color ColHeader => Rgb(0x4A4F6A);
@@ -304,6 +308,9 @@ public static class Tokens
 
         /// <inheritdoc cref="Colors.Wash"/>
         public static IBrush Wash { get; } = new SolidColorBrush(Colors.Wash);
+
+        /// <summary>A list row under the pointer: the faintest brand-tinted white, so the row answers back without a box.</summary>
+        public static IBrush RowHover { get; } = new SolidColorBrush(Color.FromRgb(0xFA, 0xFB, 0xFE));
 
         /// <inheritdoc cref="Colors.Card"/>
         public static IBrush Card { get; } = new SolidColorBrush(Colors.Card);
@@ -471,7 +478,7 @@ public static class Tokens
         public const double ButtonSmall = 12;
 
         /// <summary>A section switcher's labels.</summary>
-        public const double Tab = 13;
+        public const double Tab = 14;
 
         /// <summary>Base text, kit inputs. 14px.</summary>
         public const double Base = 14;
@@ -756,8 +763,17 @@ public static class Tokens
         /// <summary>A compact button. <c>PillButton</c> sm and <c>HeaderAction</c>: <c>h-8</c>.</summary>
         public const double ButtonHeightSmall = 32;
 
-        /// <summary>A segment inside the track, the track being this plus its inset.</summary>
-        public const double SegmentHeight = 28;
+        /// <summary>A segment inside the track, the track being this plus its inset: 30 in all, slim enough for the title row.</summary>
+        public const double SegmentHeight = 24;
+
+        /// <summary>A section tab in the masthead: words on the page, the current one underlined.</summary>
+        public const double TabHeight = 34;
+
+        /// <summary>Between one section tab's words and the next.</summary>
+        public const double TabGap = 22;
+
+        /// <summary>The underline under the current section, and its rounded ends.</summary>
+        public const double TabUnderline = 2;
 
         /// <summary>The count chip beside a section's name.</summary>
         public const double CountChipHeight = 18;
@@ -932,6 +948,15 @@ public static class Tokens
         /// <summary>Hover fades. <c>0.15s</c>.</summary>
         public static TimeSpan Quick { get; } = TimeSpan.FromMilliseconds(150);
 
+        /// <summary>The toggle's thumb and the section underline gliding to the new choice.</summary>
+        public static TimeSpan Glide { get; } = TimeSpan.FromMilliseconds(260);
+
+        /// <summary>
+        /// Whether things glide. Off in the headless tests, whose clock never runs, so a capture
+        /// shows where a thumb ends up rather than where it set off from.
+        /// </summary>
+        public static bool Animate { get; set; } = true;
+
         /// <summary>Card lift. <c>0.24s</c>.</summary>
         public static TimeSpan Lift { get; } = TimeSpan.FromMilliseconds(240);
 
@@ -979,5 +1004,11 @@ public static class Tokens
 
         /// <summary>Idle breath of the bars as a fraction of the field.</summary>
         public const double BarIdleBreath = 0.05;
+
+        /// <summary>
+        /// The resting waveform's height as a fraction of the field: a low, calm voice shape
+        /// rather than a row of dots, so the card shows what it listens for before anyone speaks.
+        /// </summary>
+        public const double BarIdleShape = 0.55;
     }
 }
