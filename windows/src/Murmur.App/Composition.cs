@@ -311,8 +311,8 @@ public sealed class Composition : IAsyncDisposable
             ? new GeminiLiveTranscriber(() => settings.Data.GeminiApiKey, settings.Data.CloudTranscriptionModel, settings.Data.BritishSpelling ? "en-GB" : "en-US")
             : new ElevenLabsTranscriber(() => settings.Data.ElevenLabsApiKey, settings.Data.CloudTranscriptionModel);
 
-    private static GeminiCleaner NewCleaner(AppSettings settings, DictionaryFile dictionary) =>
-        new(() => settings.Data.GeminiApiKey, settings.Data.GeminiModel,
+    private static ITranscriptCleaner NewCleaner(AppSettings settings, DictionaryFile dictionary) =>
+        TranscriptCleaners.Create(settings.Data.GeminiModel, () => settings.Data.GeminiApiKey, () => settings.Data.AnthropicApiKey,
             customInstructions: () => settings.Data.CustomInstructions,
             vocabulary: () => DictionaryCorrector.BiasPhrases(dictionary.Entries));
 

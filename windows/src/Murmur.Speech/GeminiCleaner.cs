@@ -332,29 +332,9 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
         }
         if (string.IsNullOrWhiteSpace(text)) return null;
 
-        // A continuation is framed so the model neither repeats the earlier text nor treats
-        // the join as a sentence boundary. The plausibility guard in Core catches a model
-        // that repeats the context anyway: the word count balloons and the result is dropped.
-        var input = new StringBuilder(Screen(screen));
-        if (!string.IsNullOrWhiteSpace(precedingCleaned))
-        {
-            input.Append("<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n")
-                 .Append(precedingCleaned.Trim())
-                 .Append("\n<<end of earlier part>>\n\n")
-                 .Append("Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence. ")
-                 .Append("If the earlier part's last sentence is finished and a new one starts at the join, begin your reply with a full stop and a space, ")
-                 .Append("which closes the earlier part (\". I'm not sure if that works\"). Otherwise carry the sentence on, in lower case apart from words that always take a capital.\n");
-        }
-        if (mayStopMidSentence)
-        {
-            input.Append("This part was cut from a longer dictation at a pause and may stop mid-sentence; more follows. ")
-                 .Append("Do not end it with a full stop unless the words finish a sentence.\n");
-        }
-        input.Append(alternative is null ? WithoutPauseCommas(text) : TwoReadings(WithoutPauseCommas(text), WithoutPauseCommas(alternative)));
-
         var request = new GenerateRequest(
             SystemInstruction: new Content([new Part(Prompt(_customInstructions(), _vocabulary()))]),
-            Contents: [new Content([new Part(input.ToString())])],
+            Contents: [new Content([new Part(Input(text, precedingCleaned, mayStopMidSentence, alternative, screen))])],
             // No output cap: a fixed 2048 tokens cut a ten-minute dictation off at the
             // knees and, because 80% of the text still looked plausible, the truncated
             // version was typed. The model's own limit is far above any dictation.
@@ -415,6 +395,33 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
         }
     }
 
+    /// <summary>
+    /// The user turn: the screen, any earlier part of the dictation, and the words to clean.
+    /// Public so every clean-up model is asked in the same words.
+    /// </summary>
+    public static string Input(string text, string? precedingCleaned, bool mayStopMidSentence, string? alternative = null, ScreenContext? screen = null)
+    {
+        // A continuation is framed so the model neither repeats the earlier text nor treats
+        // the join as a sentence boundary. The plausibility guard in Core catches a model
+        // that repeats the context anyway: the word count balloons and the result is dropped.
+        var input = new StringBuilder(Screen(screen));
+        if (!string.IsNullOrWhiteSpace(precedingCleaned))
+        {
+            input.Append("<<earlier part of this dictation, already cleaned: context only, do not repeat or change it>>\n")
+                 .Append(precedingCleaned.Trim())
+                 .Append("\n<<end of earlier part>>\n\n")
+                 .Append("Clean only the continuation below. It follows straight on from the earlier part, possibly mid-sentence. ")
+                 .Append("If the earlier part's last sentence is finished and a new one starts at the join, begin your reply with a full stop and a space, ")
+                 .Append("which closes the earlier part (\". I'm not sure if that works\"). Otherwise carry the sentence on, in lower case apart from words that always take a capital.\n");
+        }
+        if (mayStopMidSentence)
+        {
+            input.Append("This part was cut from a longer dictation at a pause and may stop mid-sentence; more follows. ")
+                 .Append("Do not end it with a full stop unless the words finish a sentence.\n");
+        }
+        return input.Append(alternative is null ? WithoutPauseCommas(text) : TwoReadings(WithoutPauseCommas(text), WithoutPauseCommas(alternative))).ToString();
+    }
+
     /// <inheritdoc />
     /// <remarks>
     /// A pooled connection is dropped after a minute idle, and the next clean-up then pays
@@ -441,7 +448,7 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
     /// <summary>Why the most recent call returned null, for the log and Settings.</summary>
     public string? LastError { get; private set; }
 
-    private static string Excerpt(string payload)
+    internal static string Excerpt(string payload)
     {
         // The API's error JSON carries a "message"; surface that rather than the whole blob.
         try

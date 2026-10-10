@@ -208,6 +208,12 @@ public sealed class SettingsView : UserControl
             if (_settings.Data.GeminiApiKey != value) Save(_settings.Data with { GeminiApiKey = value });
         });
 
+        var anthropicKey = Debounced(Sized(Field.Text("or leave blank to use ANTHROPIC_API_KEY", _settings.Data.AnthropicApiKey, secret: true), Tokens.Layout.FieldWide), text =>
+        {
+            var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+            if (_settings.Data.AnthropicApiKey != value) Save(_settings.Data with { AnthropicApiKey = value });
+        });
+
         var model = Debounced(Sized(Field.Text(GeminiCleaner.DefaultModel, _settings.Data.GeminiModel ?? GeminiCleaner.DefaultModel), Tokens.Layout.FieldShort), text =>
         {
             var value = string.IsNullOrWhiteSpace(text) || text.Trim() == GeminiCleaner.DefaultModel ? null : text.Trim();
@@ -228,12 +234,14 @@ public sealed class SettingsView : UserControl
             const string sample = "um so can you uh send me the the Q2 numbers by friday scratch that by thursday";
             test.IsEnabled = false;
             result.IsVisible = true;
-            result.Text = "Asking Gemini…";
+            result.Text = "Asking…";
             try
             {
-                using var cleaner = new GeminiCleaner(() => _settings.Data.GeminiApiKey, _settings.Data.GeminiModel, customInstructions: () => _settings.Data.CustomInstructions);
+                var cleaner = TranscriptCleaners.Create(_settings.Data.GeminiModel, () => _settings.Data.GeminiApiKey, () => _settings.Data.AnthropicApiKey, customInstructions: () => _settings.Data.CustomInstructions);
+                using var owned = cleaner as IDisposable;
+                var clock = Stopwatch.StartNew();
                 var cleaned = await cleaner.CleanAsync(sample, CancellationToken.None).ConfigureAwait(true);
-                result.Text = cleaned is null ? $"That didn't work: {cleaner.LastError ?? "no reply"}" : $"“{sample}”\n→ “{cleaned}”";
+                result.Text = cleaned is null ? $"That didn't work: {cleaner.LastError ?? "no reply"}" : $"“{sample}”\n→ “{cleaned}”\n{cleaner.Name}, {clock.ElapsedMilliseconds} ms";
             }
             finally
             {
@@ -253,7 +261,8 @@ public sealed class SettingsView : UserControl
                 "An email gets short paragraphs with your greeting and sign-off on their own lines, a Slack or Teams message stays one message, a prompt to Claude or ChatGPT keeps file names and code as said. Your words stay yours. Apps it doesn't know are judged by Jev while you talk.",
                 _settings.Data.MatchStyleToApp, v => Save(_settings.Data with { MatchStyleToApp = v })),
             Panels.FieldRow("Gemini API key", null, key),
-            Panels.FieldRow("Model", "Leave it as it is unless you mean to change it.", model),
+            Panels.FieldRow("Anthropic API key", "Only needed when the model below is a Claude one.", anthropicKey),
+            Panels.FieldRow("Model", $"{GeminiCleaner.DefaultModel} uses the Gemini key; {ClaudeCleaner.DefaultModel} uses the Anthropic key. The change applies to the next dictation.", model),
             Panels.FieldRow("Your own instructions", "Rules the clean-up follows on every dictation, in your own words.", custom),
             Panels.FieldRow(string.Empty, null, Panels.Column(Tokens.Space.Snug, test, result)));
     }

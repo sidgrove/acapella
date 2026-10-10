@@ -27,6 +27,8 @@ internal static class QualityCommands
         ["gemini-2.5-flash"] = (0.30, 2.50),
         ["gemini-2.5-flash-lite"] = (0.10, 0.40),
         ["gemini-3.5-flash-lite"] = (0.30, 2.50),
+        // As of 10/10/2026.
+        [ClaudeCleaner.DefaultModel] = (0.10, 0.50),
     };
 
     /// <summary>Handles the command if <paramref name="args"/> holds one. Null when it does not.</summary>
@@ -119,7 +121,7 @@ internal static class QualityCommands
             return inputChars / 4.0 / 1e6 * priceIn + outputChars / 4.0 / 1e6 * priceOut;
         });
 
-        output.AppendLine(Uk, $"{cases.Count} dictations ({cases.Count(c => c.EditedText is not null)} you edited) × {models.Length} models = {cases.Count * models.Length} Gemini calls, about ${cost:0.000} on the app's own key.");
+        output.AppendLine(Uk, $"{cases.Count} dictations ({cases.Count(c => c.EditedText is not null)} you edited) × {models.Length} models = {cases.Count * models.Length} calls, about ${cost:0.000} on the app's own keys.");
         if (!yes)
         {
             output.AppendLine("Nothing was sent. Run again with --yes to spend it.");
@@ -129,9 +131,10 @@ internal static class QualityCommands
         output.AppendLine();
         foreach (var model in models)
         {
-            using var cleaner = new GeminiCleaner(() => settings.Data.GeminiApiKey, model,
+            var cleaner = TranscriptCleaners.Create(model, () => settings.Data.GeminiApiKey, () => settings.Data.AnthropicApiKey,
                 customInstructions: () => settings.Data.CustomInstructions,
                 vocabulary: () => DictionaryCorrector.BiasPhrases(dictionary.Entries));
+            using var owned = cleaner as IDisposable;
 
             double errors = 0;
             double words = 0;
@@ -172,7 +175,7 @@ internal static class QualityCommands
     }
 
     /// <summary>The live path after transcription: dictionary, rules, clean-up, polish. The screen was not kept, so it is not shown.</summary>
-    private static async Task<string?> CleanLikeLiveAsync(GeminiCleaner cleaner, TranscriptRecord record, SettingsData settings, IReadOnlyList<DictionaryEntry> entries)
+    private static async Task<string?> CleanLikeLiveAsync(ITranscriptCleaner cleaner, TranscriptRecord record, SettingsData settings, IReadOnlyList<DictionaryEntry> entries)
     {
         var raw = record.RawText!;
         var forCleaner = SpokenFormatting.Apply(new DictionaryCorrector(entries).Apply(raw).Text, commands: false, settings.RemoveFillers);

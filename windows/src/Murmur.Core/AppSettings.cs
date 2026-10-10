@@ -93,8 +93,14 @@ public sealed record SettingsData
     /// <summary>Gemini API key, or null to use the <c>GEMINI_API_KEY</c> environment variable.</summary>
     public string? GeminiApiKey { get; set; }
 
-    /// <summary>Gemini model id, or null for the default.</summary>
+    /// <summary>
+    /// The clean-up model id, or null for the default. Named for Gemini because it was the
+    /// only one; a <c>claude-…</c> id sends the clean-up to Claude with <see cref="AnthropicApiKey"/>.
+    /// </summary>
     public string? GeminiModel { get; set; }
+
+    /// <summary>Anthropic API key, or null to use the <c>ANTHROPIC_API_KEY</c> environment variable.</summary>
+    public string? AnthropicApiKey { get; set; }
 
     /// <summary>
     /// Stream the audio to a cloud speech-to-text model while the key is held. Its reading
@@ -266,6 +272,7 @@ public sealed class AppSettings
             var sealedData = data with
             {
                 GeminiApiKey = Seal(data.GeminiApiKey),
+                AnthropicApiKey = Seal(data.AnthropicApiKey),
                 ElevenLabsApiKey = Seal(data.ElevenLabsApiKey),
                 JevApiKey = Seal(data.JevApiKey),
             };
@@ -342,6 +349,7 @@ public sealed class AppSettings
                 data.DropSingleSentenceFullStop = true;
             }
             data.GeminiApiKey = Open(data.GeminiApiKey, ref plainKeys);
+            data.AnthropicApiKey = Open(data.AnthropicApiKey, ref plainKeys);
             data.ElevenLabsApiKey = Open(data.ElevenLabsApiKey, ref plainKeys);
             data.JevApiKey = Open(data.JevApiKey, ref plainKeys);
             return data;
