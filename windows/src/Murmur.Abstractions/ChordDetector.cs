@@ -29,6 +29,12 @@ public enum ChordEvent
 /// holding the other reliably produces a fresh press.
 /// </para>
 /// <para>
+/// The match is exact: a modifier outside the chord makes it a different shortcut. Win+Alt+Z
+/// bound in AutoHotkey must not dictate on a Win+Ctrl chord, yet it did, because AutoHotkey
+/// injects a Ctrl tap to mask the Win key whenever one of its Win or Alt hotkeys fires.
+/// AltGr's phantom Left Ctrl is the same hazard.
+/// </para>
+/// <para>
 /// Observed events are authoritative. The physical-state delegate seeds keys whose
 /// events have not yet been seen, including keys held before the hook was installed.
 /// </para>
@@ -73,9 +79,9 @@ public sealed class ChordDetector
     {
         var repeat = _observed.TryGetValue(key, out var previous) && previous && isDown;
         _observed[key] = isDown;
-        var relevant = key == TriggerKey || (FlagOf(key) & Modifiers) != 0;
+        var relevant = key == TriggerKey || FlagOf(key) != 0;
         if (!relevant) return ChordEvent.None;
-        var complete = Down(TriggerKey) && ModifiersHeld();
+        var complete = Down(TriggerKey) && ModifiersHeld() && !ExtraModifierHeld(key);
         if (_active && !complete)
         {
             _active = false;
@@ -107,6 +113,28 @@ public sealed class ChordDetector
         if (required.HasFlag(HotkeyModifiers.Windows) && !Down(VK_LWIN) && !Down(VK_RWIN)) return false;
         return true;
     }
+
+    /// <summary>Whether a modifier outside the chord is held, which makes it a different shortcut.</summary>
+    private bool ExtraModifierHeld(int current)
+    {
+        var spare = ~(Modifiers | FlagOf(TriggerKey));
+        return (spare & (int)HotkeyModifiers.Control) != 0 && (Held(VK_LCONTROL, current) || Held(VK_RCONTROL, current))
+            || (spare & (int)HotkeyModifiers.Shift) != 0 && (Held(VK_LSHIFT, current) || Held(VK_RSHIFT, current))
+            || (spare & (int)HotkeyModifiers.Alt) != 0 && (Held(VK_LMENU, current) || Held(VK_RMENU, current))
+            || (spare & (int)HotkeyModifiers.Windows) != 0 && (Held(VK_LWIN, current) || Held(VK_RWIN, current));
+    }
+
+    /// <summary>
+    /// Stricter than <see cref="Down"/>: a key-up missed behind the lock screen or an elevated
+    /// window must not leave a phantom modifier blocking the chord, so the physical state has
+    /// to agree. The key of the event in hand is the exception, as its physical state lags.
+    /// </summary>
+    private bool Held(int key, int current)
+    {
+        if (_observed.TryGetValue(key, out var down) && !down) return false;
+        return key == current ? down : _isKeyDown(key);
+    }
+
     private static int FlagOf(int vk) => vk switch
     {
         VK_LCONTROL or VK_RCONTROL or VK_CONTROL => (int)HotkeyModifiers.Control,

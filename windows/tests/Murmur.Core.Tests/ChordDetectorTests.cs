@@ -10,6 +10,7 @@ public sealed class ChordDetectorTests
     private const int LeftControl = 0xA2;
     private const int Control = 0x11;
     private const int LeftWin = 0x5B;
+    private const int LeftAlt = 0xA4;
 
     /// <summary>Windows delivers low-level hook events before updating asynchronous key state.</summary>
     private sealed class Keyboard
@@ -34,6 +35,7 @@ public sealed class ChordDetectorTests
         public ChordEvent Press(int vk) { var result = Detector.Feed(vk, true); _down.Add(vk); return result; }
         public ChordEvent Repeat(int vk) => Detector.Feed(vk, true);
         public ChordEvent Release(int vk) { var result = Detector.Feed(vk, false); _down.Remove(vk); return result; }
+        public void LoseKeyUp(int vk) => _down.Remove(vk);
     }
 
     [Fact]
@@ -111,6 +113,67 @@ public sealed class ChordDetectorTests
 
         kb.Press(LeftControl);
         kb.Press(0xA0).ShouldBe(ChordEvent.None, "Shift is not in the chord");
+    }
+
+    [Fact]
+    public void A_masking_control_tap_under_another_shortcut_does_not_press()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        // Win+Alt+Z bound in AutoHotkey: it injects a Ctrl tap while Win and Alt are held.
+        kb.Press(LeftWin);
+        kb.Press(LeftAlt);
+        kb.Press(0x5A);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.None, "Alt is held, so this is not Win+Ctrl");
+        kb.Release(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Release(0x5A);
+        kb.Release(LeftAlt).ShouldBe(ChordEvent.None);
+        kb.Release(LeftWin).ShouldBe(ChordEvent.None);
+    }
+
+    [Fact]
+    public void Releasing_the_extra_modifier_does_not_press_late()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        kb.Press(LeftWin);
+        kb.Press(LeftAlt);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Release(LeftAlt).ShouldBe(ChordEvent.None, "a chord starts on a press, never a release");
+        kb.Repeat(LeftControl).ShouldBe(ChordEvent.None);
+    }
+
+    [Fact]
+    public void An_extra_modifier_pressed_mid_chord_ends_it()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        kb.Press(LeftWin);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed);
+        kb.Press(LeftAlt).ShouldBe(ChordEvent.Released);
+        kb.Release(LeftControl).ShouldBe(ChordEvent.None);
+    }
+
+    [Fact]
+    public void A_missed_key_up_of_an_extra_modifier_does_not_block_the_chord()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        // Alt went down, then its key-up happened where the hook could not see it.
+        kb.Press(LeftAlt);
+        kb.LoseKeyUp(LeftAlt);
+        kb.Press(LeftWin);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed);
+    }
+
+    [Fact]
+    public void The_other_side_of_a_modifier_trigger_is_not_an_extra()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        kb.Press(0xA3);
+        kb.Press(LeftWin);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed);
     }
 
     [Fact]
