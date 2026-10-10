@@ -163,15 +163,17 @@ public sealed class MainWindow : ShellWindow
                 {
                     Dispatcher.UIThread.Post(() => ShowFault("The clean-up rewrote rather than tidied, so your words were typed as heard. Both are in the history."));
                 }
-                // The pill's last word: a tick as the words land, or that they went in as heard. Asked
-                // on the UI thread, a beat later, so a fault raised straight after (the text could not
-                // be typed) is already known and nothing is claimed.
-                Dispatcher.UIThread.Post(() =>
+                // No "Done" once the words land (Dave, 10/10/2026: "it's in the way of my text
+                // interface ... Just push it into the box"): the words in the box are the
+                // confirmation. Only the exception speaks, that they went in as heard.
+                if (result.CleanupFailed)
                 {
-                    if (engine.State == DictationState.Recording) return;
-                    if (engine.IsFaultedRecently && !result.CleanupFailed) return;
-                    _overlay?.ShowDone(asHeard: result.CleanupFailed);
-                });
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (engine.State == DictationState.Recording) return;
+                        _overlay?.ShowDone(asHeard: true);
+                    });
+                }
             };
             engine.CopyTranscriptAsync = async text =>
             {
