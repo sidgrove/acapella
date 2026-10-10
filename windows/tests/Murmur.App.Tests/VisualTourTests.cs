@@ -6,6 +6,7 @@ using Murmur.App;
 using Murmur.App.Views;
 using Murmur.Core;
 using Murmur.Dictionary;
+using Shouldly;
 
 namespace Murmur.AppTests;
 
@@ -104,15 +105,26 @@ public sealed class VisualTourTests
 
             var overlay = new OverlayWindow(null);
             overlay.Show();
+            overlay.Sync(true, false, false, 0.5, "00:02", "");
+            Save(overlay, "overlay-listening-quiet");
             overlay.Sync(true, false, false, 0.5, "00:07", "So I think the thing with the cash flow page is it's starting to feel genuinely joyful");
             Save(overlay, "overlay-listening");
+            overlay.Sync(true, false, false, 0.5, "00:31", string.Join(" ", Enumerable.Repeat("So I think the thing with the cash flow page is it's starting to feel genuinely joyful.", 4)));
+            Save(overlay, "overlay-listening-long");
             overlay.Sync(false, true, true, 0, "00:09", "");
             Save(overlay, "overlay-cleaning");
+            overlay.Sync(false, true, false, 0, "00:09", "");
+            Save(overlay, "overlay-writing");
+            overlay.ShowDone();
+            Save(overlay, "overlay-done");
+            overlay.ShowDone(asHeard: true);
+            Save(overlay, "overlay-as-heard");
             overlay.ShowNotice("Nothing heard. Is the mic muted?");
             Save(overlay, "overlay-notice");
             overlay.ShowSendFeedback();
             Save(overlay, "overlay-sent");
             overlay.Close();
+            Sheet("overlay-states", ["overlay-listening-quiet", "overlay-listening", "overlay-cleaning", "overlay-writing", "overlay-done", "overlay-as-heard", "overlay-notice", "overlay-sent"], columns: 2, ground: Avalonia.Media.Brushes.Black);
 
             var welcome = new WelcomeWindow(composition);
             welcome.Show();
@@ -179,6 +191,81 @@ public sealed class VisualTourTests
             window.Close();
         }
         finally { Murmur.App.Design.Tokens.Motion.Animate = animate; }
+    }
+
+    /// <summary>
+    /// The pill's life with motion on, frame by frame in real time: rising in, listening, the
+    /// loader's dots, the tick drawing itself in, and the fade away. Writes pill-NN-what.png.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_pill_is_rendered_frame_by_frame()
+    {
+        if (Dir is null) return;
+        Directory.CreateDirectory(Dir);
+        var animate = Murmur.App.Design.Tokens.Motion.Animate;
+        Murmur.App.Design.Tokens.Motion.Animate = true;
+        try
+        {
+            var overlay = new OverlayWindow(null) { Background = Murmur.App.Design.Tokens.Canvas.Base };
+            var shot = 0;
+            void Run(string what, int frames, int every = 1, Func<bool>? until = null)
+            {
+                for (var frame = 0; frame < frames && until?.Invoke() != true; frame++)
+                {
+                    Thread.Sleep(16);
+                    // With no message loop the dispatcher only looks at its timers when it has a job
+                    // to run, so each frame hands it one; the pill's own timers then tick in real time.
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => { }, Avalonia.Threading.DispatcherPriority.Background);
+                    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    if (frame % every == 0) Save(overlay, $"pill-{shot++:00}-{what}");
+                }
+            }
+
+            overlay.Present();
+            overlay.Sync(true, false, false, 0.5, "00:00", "");
+            Save(overlay, $"pill-{shot++:00}-in");
+            Run("in", 14, 2);
+            overlay.Sync(true, false, false, 0.6, "00:04", "It's starting to feel genuinely joyful");
+            Run("listening", 6, 3);
+            overlay.Sync(false, true, true, 0, "00:05", "It's starting to feel genuinely joyful");
+            Run("working", 24, 4);
+            overlay.ShowDone();
+            Run("done", 120, 3, until: () => !overlay.IsShowingDone);
+            overlay.IsShowingDone.ShouldBeFalse("the tick lasts its moment and no longer");
+            overlay.IsLeaving.ShouldBeTrue("and then the pill fades rather than vanishing");
+            Run("out", 60, 1, until: () => !overlay.IsVisible);
+            overlay.IsVisible.ShouldBeFalse("the pill hides once it has faded");
+            overlay.Close();
+            Sheet("pill-frames", [.. Directory.GetFiles(Dir, "pill-??-*.png").Select(f => Path.GetFileNameWithoutExtension(f)!).Order(StringComparer.Ordinal)], columns: 4);
+        }
+        finally { Murmur.App.Design.Tokens.Motion.Animate = animate; }
+    }
+
+    /// <summary>Tiles shots already saved into one contact sheet, so a set is judged side by side at real size.</summary>
+    private static void Sheet(string name, IReadOnlyList<string> shots, int columns, Avalonia.Media.IBrush? ground = null)
+    {
+        var tiles = shots.Select(s => new Avalonia.Media.Imaging.Bitmap(Path.Combine(Dir!, $"{s}.png"))).ToList();
+        try
+        {
+            var cell = new Avalonia.PixelSize(tiles.Max(t => t.PixelSize.Width), tiles.Max(t => t.PixelSize.Height));
+            var rows = (tiles.Count + columns - 1) / columns;
+            using var sheet = new Avalonia.Media.Imaging.RenderTargetBitmap(new Avalonia.PixelSize(cell.Width * columns, cell.Height * rows));
+            using (var context = sheet.CreateDrawingContext())
+            {
+                context.FillRectangle(ground ?? Murmur.App.Design.Tokens.Canvas.Base, new Avalonia.Rect(0, 0, cell.Width * columns, cell.Height * rows));
+                for (var i = 0; i < tiles.Count; i++)
+                {
+                    var size = tiles[i].PixelSize;
+                    context.DrawImage(tiles[i], new Avalonia.Rect((i % columns) * cell.Width, (i / columns) * cell.Height, size.Width, size.Height));
+                }
+            }
+            sheet.Save(Path.Combine(Dir!, $"{name}.png"));
+        }
+        finally
+        {
+            foreach (var tile in tiles) tile.Dispose();
+        }
     }
 
     private static void Save(Window window, string name)

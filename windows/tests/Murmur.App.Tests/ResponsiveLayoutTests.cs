@@ -30,6 +30,62 @@ public sealed class ResponsiveLayoutTests
         }
         finally { window.Close(); }
     }
+    /// <summary>
+    /// Nothing clips: the title row's search and "..." (and the dictionary's Add word) stay inside
+    /// the page at every width, the sections that are not current folding to their marks to make room.
+    /// </summary>
+    [AvaloniaTheory]
+    [Xunit.InlineData(640, true)]
+    [Xunit.InlineData(700, null)]
+    [Xunit.InlineData(760, null)]
+    [Xunit.InlineData(900, false)]
+    [Xunit.InlineData(1080, false)]
+    public void The_title_row_folds_the_sections_rather_than_cutting_off_its_tools(int width, bool? folded)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"acapella-masthead-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        var composition = Murmur.App.Composition.ForPreview(
+            new AppSettings(Path.Combine(folder, "s.json")), new DictionaryFile(Path.Combine(folder, "d.txt")),
+            new TranscriptStore(Path.Combine(folder, "t.jsonl")), new SuggestionStore(Path.Combine(folder, "g.json")));
+        composition.Settings.Update(composition.Settings.Data with { HasOnboarded = true });
+        composition.Transcripts.Add(new TranscriptRecord { Text = "One dictation, so the history has its tools.", RawText = "One dictation" });
+        var window = new MainWindow(composition) { Width = width, Height = 480 };
+        try
+        {
+            window.Show();
+            foreach (var section in new[] { "Dictations", "Dictionary" })
+            {
+                var links = window.GetVisualDescendants().OfType<NavLink>().ToList();
+                links.Single(l => l.Text == section).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                for (var pass = 0; pass < 3; pass++) { window.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); }
+
+                var current = links.Single(l => l.IsActive);
+                current.Text.ShouldBe(section);
+                current.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == section).IsVisible.ShouldBeTrue("the current section always keeps its name");
+                if (section == "Dictations" && folded is { } expected) links.All(l => l.IsCompact == expected).ShouldBeTrue($"{section} at {width}");
+
+                var page = window.GetVisualDescendants().OfType<WashPanel>().Single();
+                var pageRight = page.TranslatePoint(default, window)!.Value.X + page.Bounds.Width;
+                // The title row's tools are the buttons level with the sections.
+                var rowY = current.TranslatePoint(new Point(0, current.Bounds.Height / 2), window)!.Value.Y;
+                var tools = window.GetVisualDescendants().OfType<SgButton>()
+                    .Where(b => b.IsEffectivelyVisible && Math.Abs(b.TranslatePoint(new Point(0, b.Bounds.Height / 2), window)!.Value.Y - rowY) < 12)
+                    .ToList();
+                tools.Count.ShouldBeGreaterThanOrEqualTo(2, "search and the more menu");
+                foreach (var tool in tools)
+                {
+                    var right = tool.TranslatePoint(default, window)!.Value.X + tool.Bounds.Width;
+                    right.ShouldBeLessThanOrEqualTo(pageRight - 16, $"a title-row tool is cut off on {section} at {width}");
+                }
+            }
+        }
+        finally
+        {
+            window.Close();
+            try { Directory.Delete(folder, recursive: true); } catch (IOException) { }
+        }
+    }
+
     [AvaloniaTheory]
     [Xunit.InlineData(640, 480)]
     [Xunit.InlineData(780, 480)]

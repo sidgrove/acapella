@@ -34,6 +34,7 @@ public sealed class MainWindow : ShellWindow
     private readonly Border _shortcut;
     private readonly TextBlock _readoutLabel;
     private readonly LevelBars _bars;
+    private readonly WorkingDots _working = new() { VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
     private readonly NavLink _transcriptionsLink;
     private readonly NavLink _dictionaryLink;
     private readonly NavLink _settingsLink;
@@ -150,13 +151,27 @@ public sealed class MainWindow : ShellWindow
                     Dispatcher.UIThread.Post(() => { Interlocked.Exchange(ref refreshPending, 0); SyncFromEngine(); });
                 }
             };
-            engine.Faulted += (_, message) => Dispatcher.UIThread.Post(() => ShowFault(message));
+            engine.Faulted += (_, message) => Dispatcher.UIThread.Post(() =>
+            {
+                ShowFault(message);
+                // A tick must never stand over a fault: the words that could not be typed are the truth.
+                if (_overlay?.IsShowingDone == true) _overlay.Dismiss();
+            });
             engine.Completed += (_, result) =>
             {
                 if (result.CleanupFailed && !engine.IsFaultedRecently)
                 {
                     Dispatcher.UIThread.Post(() => ShowFault("The clean-up rewrote rather than tidied, so your words were typed as heard. Both are in the history."));
                 }
+                // The pill's last word: a tick as the words land, or that they went in as heard. Asked
+                // on the UI thread, a beat later, so a fault raised straight after (the text could not
+                // be typed) is already known and nothing is claimed.
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (engine.State == DictationState.Recording) return;
+                    if (engine.IsFaultedRecently && !result.CleanupFailed) return;
+                    _overlay?.ShowDone(asHeard: result.CleanupFailed);
+                });
             };
             engine.CopyTranscriptAsync = async text =>
             {
@@ -277,6 +292,20 @@ public sealed class MainWindow : ShellWindow
             // Narrow, the page's one action keeps its icon and gives up its words.
             _dictionaryView?.SetCompact(e.NewSize.Width < Tokens.Layout.CompactToolsBelow);
         };
+        // Nothing clips: when the title, every section's name and the page's tools cannot share the
+        // row, the sections that are not current fold to their marks. Asked after each layout from
+        // what each piece wants, with the sections' full width remembered, so it settles in one pass.
+        var links = new[] { _transcriptionsLink, _dictionaryLink, _settingsLink };
+        var tabsFull = 0d;
+        row.LayoutUpdated += (_, _) =>
+        {
+            if (row.Bounds.Width <= 0) return;
+            if (!links[0].IsCompact) tabsFull = tabs.DesiredSize.Width;
+            var wanted = _title.DesiredSize.Width + tabsFull + _toolsHost.DesiredSize.Width;
+            var compact = wanted > row.Bounds.Width;
+            if (compact == links[0].IsCompact) return;
+            foreach (var link in links) link.IsCompact = compact;
+        };
         return row;
     }
 
@@ -307,7 +336,11 @@ public sealed class MainWindow : ShellWindow
         var words = Panels.Row(Tokens.Space.Snug, stateLine, _shortcut, BuildModeChip());
         words.MinHeight = Tokens.Layout.TileLead;
 
-        var right = Panels.Row(Tokens.Space.Roomy, _bars, _enabled);
+        // The bars' place holds one thing at a time: the bars, or the loader's dots while the words
+        // are being worked on (bars with nothing to follow read as stalled). It keeps the bars' width.
+        _working.HorizontalAlignment = HorizontalAlignment.Right;
+        var meter = new Panel { Width = _bars.Width, VerticalAlignment = VerticalAlignment.Center, Children = { _bars, _working } };
+        var right = Panels.Row(Tokens.Space.Roomy, meter, _enabled);
         var top = new DockPanel();
         DockPanel.SetDock(right, Dock.Right);
         top.Children.Add(right);
@@ -317,7 +350,7 @@ public sealed class MainWindow : ShellWindow
         var card = Card.Standard(Panels.Column(0, top, _preview, _fault), Tokens.Space.Roomy);
         card.Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Base, Tokens.Space.Wide, Tokens.Space.Base);
         // Narrow, the resting waveform gives way so the state, the key and the mode never crowd.
-        card.SizeChanged += (_, e) => _bars.Opacity = e.NewSize.Width < Tokens.Layout.StatusBarsBelow ? 0 : 1;
+        card.SizeChanged += (_, e) => meter.Opacity = e.NewSize.Width < Tokens.Layout.StatusBarsBelow ? 0 : 1;
         card.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy);
         return card;
     }
@@ -524,7 +557,7 @@ public sealed class MainWindow : ShellWindow
         {
             var cleaning = transcribing && _composition!.Settings.Data.AiCleanup;
             if (busy) { _overlay.Present(); _overlay.Sync(recording, transcribing, cleaning, engine.Level, _counter.Text ?? string.Empty, preview); }
-            else if (_overlay.IsVisible && !_overlay.IsShowingTransient) _overlay.Hide();
+            else if (_overlay.IsVisible && !_overlay.IsShowingTransient) _overlay.Dismiss();
         }
     }
 
@@ -544,6 +577,10 @@ public sealed class MainWindow : ShellWindow
     private void SetState(bool recording, bool transcribing)
     {
         _counter.IsVisible = recording || transcribing;
+        _working.IsVisible = transcribing;
+        _bars.IsVisible = !transcribing;
+        // The tile melts to its new hue and gives the toggles' small spring, so a change of state is felt.
+        if (IsVisible) _stateTile.Pop();
         var off = _composition is not null && !_composition.Settings.Data.IsEnabled;
         if (off && !recording && !transcribing)
         {

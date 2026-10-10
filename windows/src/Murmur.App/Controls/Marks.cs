@@ -1,6 +1,8 @@
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Styling;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Murmur.Abstractions;
@@ -140,7 +142,13 @@ public sealed class Glyph : Control
     /// <summary>The stroke on the 24-unit grid: heavier when small, so it reads.</summary>
     public static readonly StyledProperty<double> WeightProperty = AvaloniaProperty.Register<Glyph, double>(nameof(Weight), 2.2);
 
-    static Glyph() => AffectsRender<Glyph>(DataProperty, InkProperty, WeightProperty);
+    /// <summary>
+    /// How much of the line is drawn, 0 to 1, from its start: a tick that draws itself in. 1, the
+    /// whole glyph, unless something is animating it.
+    /// </summary>
+    public static readonly StyledProperty<double> RevealProperty = AvaloniaProperty.Register<Glyph, double>(nameof(Reveal), 1);
+
+    static Glyph() => AffectsRender<Glyph>(DataProperty, InkProperty, WeightProperty, RevealProperty);
 
     /// <summary>Creates a glyph.</summary>
     public Glyph(string? data = null, double size = 14, IBrush? ink = null)
@@ -162,15 +170,26 @@ public sealed class Glyph : Control
     /// <inheritdoc cref="WeightProperty"/>
     public double Weight { get => GetValue(WeightProperty); set => SetValue(WeightProperty, value); }
 
+    /// <inheritdoc cref="RevealProperty"/>
+    public double Reveal { get => GetValue(RevealProperty); set => SetValue(RevealProperty, value); }
+
     /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
-        if (Data is not { Length: > 0 } data || Ink is not { } ink || Bounds.Width <= 0) return;
+        if (Data is not { Length: > 0 } data || Ink is not { } ink || Bounds.Width <= 0 || Reveal <= 0) return;
         var scale = Math.Min(Bounds.Width, Bounds.Height) / 24;
-        var pen = new Pen(ink, Weight, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round);
+        var geometry = Icons.Geometry(data);
+        // Part drawn: one dash as long as the part, then a gap longer than the rest (in pen widths).
+        DashStyle? dash = null;
+        if (Reveal < 1)
+        {
+            var length = geometry.ContourLength / Weight;
+            dash = new DashStyle([length * Reveal, length + 1], 0);
+        }
+        var pen = new Pen(ink, Weight, dash, PenLineCap.Round, PenLineJoin.Round);
         using (context.PushTransform(Matrix.CreateScale(scale, scale)))
         {
-            context.DrawGeometry(null, pen, Icons.Geometry(data));
+            context.DrawGeometry(null, pen, geometry);
         }
     }
 }
@@ -193,17 +212,73 @@ public sealed class IconTile : Border
         _glyph = new Glyph(icon, GlyphSize(size)) { HorizontalAlignment = HorizontalAlignment.Center };
         Child = _glyph;
         SetAccent(accent);
+        // A state that changes hue (ready, listening, tidying up) melts from one to the next
+        // rather than snapping. Set after the first colour, so a tile is born in its hue.
+        if (Tokens.Motion.Animate)
+        {
+            Transitions = [new BrushTransition { Property = BackgroundProperty, Duration = Tokens.Motion.Quick }];
+            _glyph.Transitions = [new BrushTransition { Property = Glyph.InkProperty, Duration = Tokens.Motion.Quick }];
+        }
     }
 
+    /// <summary>The tile's hue.</summary>
+    public Tokens.Accent Accent { get; private set; } = Tokens.Accent.Brand;
+
+    /// <summary>The tile's icon, one of <see cref="Icons"/>.</summary>
+    public string? Icon => _glyph.Data;
+
     /// <summary>Recolours the tile, for a state that changes (listening, paused).</summary>
-    public void SetAccent(Tokens.Accent accent)
+    /// <param name="accent">The new hue.</param>
+    /// <param name="melt">False to arrive in the hue at once: a tile nobody was looking at has nothing to melt from.</param>
+    public void SetAccent(Tokens.Accent accent, bool melt = true)
     {
+        Accent = accent;
+        var (tile, glyph) = (Transitions, _glyph.Transitions);
+        if (!melt) (Transitions, _glyph.Transitions) = (null, null);
         Background = accent.Fill;
         _glyph.Ink = accent.Ink;
+        if (!melt) (Transitions, _glyph.Transitions) = (tile, glyph);
     }
 
     /// <summary>Changes the icon.</summary>
     public void SetIcon(string icon) => _glyph.Data = icon;
+
+    /// <summary>How much of the icon's line is drawn, 0 to 1: a tick drawing itself in.</summary>
+    public double Reveal
+    {
+        get => _glyph.Reveal;
+        set => _glyph.Reveal = value;
+    }
+
+    /// <summary>
+    /// A small spring as the tile changes state: it starts a little under its size and settles
+    /// home, the toggle thumb's spring (Dave, 05/10/2026). Nothing when motion is off.
+    /// </summary>
+    public void Pop()
+    {
+        if (!Tokens.Motion.Animate) return;
+        RenderTransform ??= new ScaleTransform(1, 1);
+        _ = PopAnimation.RunAsync(this);
+    }
+
+    private static readonly Animation PopAnimation = new()
+    {
+        Duration = Tokens.Motion.Glide,
+        Easing = Thumb.Spring,
+        Children =
+        {
+            new KeyFrame
+            {
+                Cue = new Cue(0),
+                Setters = { new Setter(ScaleTransform.ScaleXProperty, Tokens.Motion.TilePop), new Setter(ScaleTransform.ScaleYProperty, Tokens.Motion.TilePop) },
+            },
+            new KeyFrame
+            {
+                Cue = new Cue(1),
+                Setters = { new Setter(ScaleTransform.ScaleXProperty, 1d), new Setter(ScaleTransform.ScaleYProperty, 1d) },
+            },
+        },
+    };
 
     /// <summary>About half the tile, never re-typed at a call site. <c>ICON_TILE_GLYPH</c>.</summary>
     private static double GlyphSize(double tile) => tile switch

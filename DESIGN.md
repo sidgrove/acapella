@@ -59,3 +59,18 @@ Before and after: `docs/screenshots/2026-10-05-bible/`.
 
 - **The toggles, warmer:** each tab leads with its own mark (mic in brand, book in emerald, sliders in plum), in its hue even at rest, softened until chosen or hovered. The white thumb sits on a brand-tinted ring and lift instead of grey, glides with a small spring past its mark and home (`Thumb.Spring`, 340 ms, clamped inside the bed), an unchosen segment shows a whisper of white under the pointer, and a segment gives a little (96%) as it is pressed.
 - **The day's band is the list's header and pins:** it sits above the scrolling rows as the card's rounded top, outside the scroll, so the margin above and the rounded corners never move. Each later day's band runs edge to edge between the rows and takes over the pinned header as it reaches the top. The days are one continuous card now; only the last row rounds it off.
+
+## The pill and three rough spots, 10 October 2026
+
+Dave: "can we do anything in line with the sidgrove intelligence bible to improve the aesthetic of the app and the popup I get when I activate speech for more joy?"
+
+- **The pill is one row, in the status card's language** (`OverlayWindow`): a 32px tile whose hue is the state (crimson listening, amber working, emerald done, slate nothing heard), the state in a word or two, and one thing beside it that moves. It was a 100px white box with a dot, a floating word and navy bars that sat still while the model worked. Now 58px, growing only for the live words, which hang under the state word in whole lines (four at most).
+- **One moving part per state:** the voice bars while it listens; the house loader's three dots while it works (`WorkingDots`; the Bible: "three small bouncing dots ... nothing more"); a tick that draws itself in when the words have landed ("Done", 700 ms, once and small); the colour wave after a send, kept as it was.
+- **A tick is never a false reassurance:** if the clean-up was set aside the pill says "Typed as heard" in amber, and a fault raised as the words fail to type takes the tick away.
+- **It arrives and leaves:** a short rise and fade in (180 ms), a quicker sink and fade out (140 ms), and the tile melts to its new hue with the toggles' small spring when the state changes under your eyes. All of it is off when `Tokens.Motion.Animate` is off.
+- **Taken away:** the timer while it works, the "↗" typed after "Sent" (the tile's paper plane says it), the empty box under "Nothing heard", the pulsing dot.
+- **Status card:** the same dots stand in the bars' place while the words are worked on, and the tile melts and springs between states.
+- **Nothing clips on the title row:** when the title, every section's name and the page's tools cannot share the row, the sections that are not current fold to their marks (name in the tooltip). At 640 the dictionary's "..." and "Add word" used to be cut off.
+- **A scrolling list says so softly:** the theme's near-black scroll line is the brand's mid tone, firming under the pointer.
+
+Seen: `VisualTourTests` renders every pill state (`overlay-states.png`) and, with motion on, its life frame by frame in real time (`pill-frames.png`). Before and after: `docs/screenshots/2026-10-10-pill/`. Not seen: any of it on Dave's own screen, over his own apps, with his own voice.
