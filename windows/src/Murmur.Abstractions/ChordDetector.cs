@@ -35,6 +35,11 @@ public enum ChordEvent
 /// AltGr's phantom Left Ctrl is the same hazard.
 /// </para>
 /// <para>
+/// And it stays a different shortcut until every key of the chord has come up. AutoHotkey
+/// sends that Ctrl tap as each modifier is released, so with Alt let go first the tap for
+/// Win arrives when only Win is held, which on its own looks exactly like Win+Ctrl.
+/// </para>
+/// <para>
 /// Observed events are authoritative. The physical-state delegate seeds keys whose
 /// events have not yet been seen, including keys held before the hook was installed.
 /// </para>
@@ -55,6 +60,7 @@ public sealed class ChordDetector
 
     private readonly Func<int, bool> _isKeyDown;
     private bool _active;
+    private bool _spoiled;
     private readonly Dictionary<int, bool> _observed = [];
 
     /// <param name="isKeyDown">Whether a virtual key is physically down right now.</param>
@@ -81,7 +87,9 @@ public sealed class ChordDetector
         _observed[key] = isDown;
         var relevant = key == TriggerKey || FlagOf(key) != 0;
         if (!relevant) return ChordEvent.None;
-        var complete = Down(TriggerKey) && ModifiersHeld() && !ExtraModifierHeld(key);
+        if (!ChordKeyHeld(key)) _spoiled = false;
+        else if (ExtraModifierHeld(key)) _spoiled = true;
+        var complete = !_spoiled && Down(TriggerKey) && ModifiersHeld();
         if (_active && !complete)
         {
             _active = false;
@@ -99,6 +107,7 @@ public sealed class ChordDetector
     public void Reset()
     {
         _active = false;
+        _spoiled = false;
         _observed.Clear();
     }
 
@@ -112,6 +121,17 @@ public sealed class ChordDetector
         if (required.HasFlag(HotkeyModifiers.Alt) && !Down(VK_LMENU) && !Down(VK_RMENU)) return false;
         if (required.HasFlag(HotkeyModifiers.Windows) && !Down(VK_LWIN) && !Down(VK_RWIN)) return false;
         return true;
+    }
+
+    /// <summary>Whether any key of the chord is held; while one is, a spoiled gesture stays spoiled.</summary>
+    private bool ChordKeyHeld(int current)
+    {
+        var required = (HotkeyModifiers)Modifiers;
+        return Held(TriggerKey, current)
+            || required.HasFlag(HotkeyModifiers.Control) && (Held(VK_LCONTROL, current) || Held(VK_RCONTROL, current))
+            || required.HasFlag(HotkeyModifiers.Shift) && (Held(VK_LSHIFT, current) || Held(VK_RSHIFT, current))
+            || required.HasFlag(HotkeyModifiers.Alt) && (Held(VK_LMENU, current) || Held(VK_RMENU, current))
+            || required.HasFlag(HotkeyModifiers.Windows) && (Held(VK_LWIN, current) || Held(VK_RWIN, current));
     }
 
     /// <summary>Whether a modifier outside the chord is held, which makes it a different shortcut.</summary>

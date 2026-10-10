@@ -131,6 +131,28 @@ public sealed class ChordDetectorTests
         kb.Release(LeftWin).ShouldBe(ChordEvent.None);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_masking_tap_after_the_extra_modifier_is_released_does_not_press(bool altFirst)
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        // AutoHotkey masks each modifier as it comes up: with Alt released first, the tap
+        // for Win arrives while Win is the only key still held.
+        if (altFirst) { kb.Press(LeftAlt); kb.Press(LeftWin); }
+        else { kb.Press(LeftWin); kb.Press(LeftAlt); }
+        kb.Press(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Release(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Release(LeftAlt).ShouldBe(ChordEvent.None);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.None, "Win has been held since Alt was down");
+        kb.Release(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Release(LeftWin).ShouldBe(ChordEvent.None);
+
+        kb.Press(LeftWin);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed, "a fresh gesture is the chord again");
+    }
+
     [Fact]
     public void Releasing_the_extra_modifier_does_not_press_late()
     {
