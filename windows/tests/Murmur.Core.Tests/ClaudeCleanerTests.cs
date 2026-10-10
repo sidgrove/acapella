@@ -14,7 +14,7 @@ public sealed class ClaudeCleanerTests
     private const string Tidy = """{"content":[{"type":"text","text":"Tidy text"}],"stop_reason":"end_turn"}""";
 
     [Fact]
-    public async Task The_request_is_shaped_for_haiku_with_thinking_off()
+    public async Task The_request_is_shaped_for_haiku_at_low_effort()
     {
         var handler = new Handler(Tidy);
         using var cleaner = new ClaudeCleaner(() => "test-key", handler: handler, customInstructions: () => "No exclamation marks", vocabulary: () => ["Xero"]);
@@ -28,12 +28,12 @@ public sealed class ClaudeCleanerTests
         var body = JsonDocument.Parse(handler.Body.ShouldNotBeNull()).RootElement;
         body.GetProperty("model").GetString().ShouldBe("claude-haiku-5-5");
         body.GetProperty("max_tokens").GetInt32().ShouldBe(ClaudeCleaner.MaxTokens);
-        body.GetProperty("thinking").GetProperty("type").GetString().ShouldBe("disabled");
+        body.GetProperty("thinking").GetProperty("type").GetString().ShouldBe("adaptive", "disabled, it answers the dictation");
         body.GetProperty("output_config").GetProperty("effort").GetString().ShouldBe("low");
         body.TryGetProperty("temperature", out _).ShouldBeFalse("any value but the default is a 400 on this model");
 
         var system = body.GetProperty("system")[0];
-        system.GetProperty("text").GetString().ShouldBe(GeminiCleaner.Prompt("No exclamation marks", ["Xero"]));
+        system.GetProperty("text").GetString().ShouldBe(GeminiCleaner.Prompt("No exclamation marks", ["Xero"]) + ClaudeCleaner.ReplyRule);
         system.GetProperty("cache_control").GetProperty("type").GetString().ShouldBe("ephemeral");
 
         var messages = body.GetProperty("messages");

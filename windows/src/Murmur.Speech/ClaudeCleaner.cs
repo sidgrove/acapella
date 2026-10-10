@@ -19,9 +19,9 @@ namespace Murmur.Speech;
 /// </para>
 /// <para>
 /// Built for Claude Haiku 5.5 (7/10/2026), which is priced at a third of Gemini 2.5 Flash on
-/// input and a fifth on output. Thinking is switched off and effort is <c>low</c>: this is a
-/// rewrite, not a reasoning task, and every hundred milliseconds is felt between key-up and
-/// text. No <c>temperature</c> is sent, because any value but the default is a 400 on this
+/// input and a fifth on output. Effort is <c>low</c>: this is a rewrite, not a reasoning
+/// task, and every hundred milliseconds is felt between key-up and text. Thinking is left
+/// adaptive, not disabled; see <see cref="ReplyRule"/> for what disabling it did. No <c>temperature</c> is sent, because any value but the default is a 400 on this
 /// model. The system prompt is marked for caching, as it is the same on every dictation and
 /// is most of what is sent.
 /// </para>
@@ -43,6 +43,19 @@ public sealed class ClaudeCleaner : ITranscriptCleaner, IDisposable
     /// longest dictation, and a reply that reaches it is dropped rather than typed short.
     /// </summary>
     public const int MaxTokens = 16000;
+
+    /// <summary>
+    /// Added to the shared prompt for Claude only. Public so the evaluation can show it.
+    /// </summary>
+    /// <remarks>
+    /// Measured on 10/10/2026 with Dave's own dictations. With thinking disabled Haiku 5.5
+    /// treated a dictation that reads like a request as a message to itself: "yes lets build
+    /// the claude client lets go" came back as "I can't build a Claude client from here…",
+    /// and 40 dictations scored a 100% word error rate. This rule alone did not stop it.
+    /// With adaptive thinking at low effort and this rule the same dictations were cleaned,
+    /// and no thinking tokens were spent on them, so it costs no time.
+    /// </remarks>
+    public const string ReplyRule = "\n\nYour whole reply is typed straight into the speaker's document. Reply with the cleaned text and nothing else: no comment, no explanation, no note that nothing needed changing, no quotation marks around it.";
 
     private const string ApiVersion = "2023-06-01";
 
@@ -135,8 +148,8 @@ public sealed class ClaudeCleaner : ITranscriptCleaner, IDisposable
         var request = new MessagesRequest(
             Model: _model,
             MaxTokens: MaxTokens,
-            System: [new SystemBlock("text", GeminiCleaner.Prompt(_customInstructions(), _vocabulary()), new CacheControl("ephemeral"))],
-            Thinking: new Thinking("disabled"),
+            System: [new SystemBlock("text", GeminiCleaner.Prompt(_customInstructions(), _vocabulary()) + ReplyRule, new CacheControl("ephemeral"))],
+            Thinking: new Thinking("adaptive"),
             OutputConfig: new OutputConfig("low"),
             Messages: [new Message("user", GeminiCleaner.Input(text, precedingCleaned, mayStopMidSentence, alternative, screen))]);
 
