@@ -89,7 +89,7 @@ internal static class QualityCommands
     /// </summary>
     private static async Task<int> CompareAsync(string[] models, int days, int limit, bool yes)
     {
-        var settings = new AppSettings(AppSettings.DefaultPath);
+        var settings = new AppSettings(AppSettings.DefaultPath, PlatformFactory.CreateSecretStore());
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
         var since = DateTimeOffset.Now.AddDays(-days);

@@ -102,7 +102,7 @@ public sealed class Composition : IAsyncDisposable
         // ducker that had given up for good said so only in a Debug build.
         PlatformDiagnostics.Sink = message => Log.Warn($"platform: {message}");
 
-        var settings = new AppSettings(AppSettings.DefaultPath);
+        var settings = new AppSettings(AppSettings.DefaultPath, PlatformFactory.CreateSecretStore());
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var suggestions = new SuggestionStore(SuggestionStore.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);

@@ -62,9 +62,25 @@ public sealed class ChordDetector
     private bool _active;
     private bool _spoiled;
     private readonly Dictionary<int, bool> _observed = [];
+    private readonly Dictionary<int, long> _seenAt = [];
+    private readonly Func<long> _milliseconds;
+
+    /// <summary>
+    /// How long an observed key-down is believed without question. Past it, a key the
+    /// physical state says is up had its key-up somewhere the hook could not see: Win+L
+    /// ends on the lock screen, and Win then looked held until it was next tapped, so a
+    /// bare Ctrl dictated. Long enough that the physical state's lag behind the event in
+    /// hand never matters.
+    /// </summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(2);
 
     /// <param name="isKeyDown">Whether a virtual key is physically down right now.</param>
-    public ChordDetector(Func<int, bool> isKeyDown) => _isKeyDown = isKeyDown;
+    /// <param name="milliseconds">A monotonic clock; the system's when null.</param>
+    public ChordDetector(Func<int, bool> isKeyDown, Func<long>? milliseconds = null)
+    {
+        _isKeyDown = isKeyDown;
+        _milliseconds = milliseconds ?? (() => Environment.TickCount64);
+    }
 
     /// <summary>The key whose press and release bracket the recording.</summary>
     public int TriggerKey { get; set; }
@@ -83,8 +99,9 @@ public sealed class ChordDetector
     /// <param name="isDown">True for key-down, including autorepeat; false for key-up.</param>
     public ChordEvent Feed(int key, bool isDown)
     {
-        var repeat = _observed.TryGetValue(key, out var previous) && previous && isDown;
+        var repeat = isDown && _observed.ContainsKey(key) && Down(key);
         _observed[key] = isDown;
+        _seenAt[key] = _milliseconds();
         var relevant = key == TriggerKey || FlagOf(key) != 0;
         if (!relevant) return ChordEvent.None;
         if (!ChordKeyHeld(key)) _spoiled = false;
@@ -109,9 +126,19 @@ public sealed class ChordDetector
         _active = false;
         _spoiled = false;
         _observed.Clear();
+        _seenAt.Clear();
     }
 
-    private bool Down(int key) => _observed.TryGetValue(key, out var down) ? down : _isKeyDown(key);
+    private bool Down(int key)
+    {
+        if (!_observed.TryGetValue(key, out var down)) return _isKeyDown(key);
+        if (down && _milliseconds() - _seenAt[key] > StaleAfter.TotalMilliseconds && !_isKeyDown(key))
+        {
+            _observed[key] = false;
+            return false;
+        }
+        return down;
+    }
 
     private bool ModifiersHeld()
     {

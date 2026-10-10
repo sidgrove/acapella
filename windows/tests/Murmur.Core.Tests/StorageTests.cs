@@ -237,4 +237,60 @@ public sealed class AppSettingsTests : IDisposable
 
         new AppSettings(_path).Data.PushToTalkKey.ShouldBe(0xA3);
     }
+
+    [Fact]
+    public void Api_keys_are_encrypted_in_the_file_and_clear_in_memory()
+    {
+        var settings = new AppSettings(_path, new ReversingSecrets());
+        settings.Update(settings.Data with { GeminiApiKey = "gemini-key", ElevenLabsApiKey = "eleven-key", JevApiKey = "jev-key" });
+
+        settings.Data.GeminiApiKey.ShouldBe("gemini-key");
+        var written = File.ReadAllText(_path);
+        written.ShouldNotContain("gemini-key");
+        written.ShouldNotContain("eleven-key");
+        written.ShouldNotContain("jev-key");
+
+        var reopened = new AppSettings(_path, new ReversingSecrets());
+        reopened.Data.GeminiApiKey.ShouldBe("gemini-key");
+        reopened.Data.ElevenLabsApiKey.ShouldBe("eleven-key");
+        reopened.Data.JevApiKey.ShouldBe("jev-key");
+    }
+
+    [Fact]
+    public void A_key_saved_in_the_clear_by_an_older_build_is_encrypted_on_first_load()
+    {
+        var old = new AppSettings(_path);
+        old.Update(old.Data with { GeminiApiKey = "gemini-key", PushToTalkKey = 0x7C });
+        File.ReadAllText(_path).ShouldContain("gemini-key");
+
+        var settings = new AppSettings(_path, new ReversingSecrets());
+
+        settings.Data.GeminiApiKey.ShouldBe("gemini-key");
+        settings.Data.PushToTalkKey.ShouldBe(0x7C);
+        File.ReadAllText(_path).ShouldNotContain("gemini-key");
+    }
+
+    [Fact]
+    public void A_key_this_user_cannot_decrypt_is_dropped_and_the_rest_kept()
+    {
+        var settings = new AppSettings(_path, new ReversingSecrets());
+        settings.Update(settings.Data with { GeminiApiKey = "gemini-key", PushToTalkKey = 0x7C });
+
+        var elsewhere = new AppSettings(_path, new RefusingSecrets());
+
+        elsewhere.Data.GeminiApiKey.ShouldBeNull();
+        elsewhere.Data.PushToTalkKey.ShouldBe(0x7C);
+    }
+
+    private sealed class ReversingSecrets : Murmur.Abstractions.ISecretStore
+    {
+        public byte[] Protect(byte[] plain) => [.. plain.Reverse()];
+        public byte[]? Unprotect(byte[] cipher) => [.. cipher.Reverse()];
+    }
+
+    private sealed class RefusingSecrets : Murmur.Abstractions.ISecretStore
+    {
+        public byte[] Protect(byte[] plain) => plain;
+        public byte[]? Unprotect(byte[] cipher) => null;
+    }
 }

@@ -21,8 +21,10 @@ public sealed class ChordDetectorTests
 
         public Keyboard(int trigger, HotkeyModifiers modifiers)
         {
-            Detector = new ChordDetector(IsDown) { TriggerKey = trigger, Modifiers = (int)modifiers };
+            Detector = new ChordDetector(IsDown, () => Now) { TriggerKey = trigger, Modifiers = (int)modifiers };
         }
+
+        public long Now { get; set; }
 
         private bool IsDown(int vk) => vk switch
         {
@@ -186,6 +188,34 @@ public sealed class ChordDetectorTests
         kb.LoseKeyUp(LeftAlt);
         kb.Press(LeftWin);
         kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed);
+    }
+
+    [Fact]
+    public void A_key_up_lost_to_the_lock_screen_does_not_leave_the_modifier_held()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        // Win+L: the hook sees Win go down and never sees it come up.
+        kb.Press(LeftWin);
+        kb.LoseKeyUp(LeftWin);
+        kb.Now += 60_000;
+
+        kb.Press(LeftControl).ShouldBe(ChordEvent.None, "Win is not held any more");
+        kb.Release(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Press(LeftWin).ShouldBe(ChordEvent.None, "a fresh press, not an autorepeat");
+        kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed);
+    }
+
+    [Fact]
+    public void A_long_hold_is_still_held()
+    {
+        var kb = new Keyboard(LeftControl, HotkeyModifiers.Windows);
+
+        kb.Press(LeftWin);
+        kb.Press(LeftControl).ShouldBe(ChordEvent.Pressed);
+        kb.Now += 120_000;
+        kb.Repeat(LeftControl).ShouldBe(ChordEvent.None);
+        kb.Release(LeftControl).ShouldBe(ChordEvent.Released);
     }
 
     [Fact]

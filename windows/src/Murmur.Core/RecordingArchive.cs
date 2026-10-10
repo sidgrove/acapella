@@ -102,7 +102,13 @@ public sealed class RecordingArchive
     {
         try
         {
-            lock (_gate) File.Delete(PathFor(at));
+            // Nothing was saved when recordings are not kept, and File.Delete throws on a
+            // missing folder where it is silent about a missing file.
+            var path = PathFor(at);
+            lock (_gate)
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

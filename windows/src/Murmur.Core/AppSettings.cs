@@ -210,13 +210,28 @@ public sealed record SettingsData
 /// <summary>Settings, persisted as JSON.</summary>
 public sealed class AppSettings
 {
+    /// <summary>Marks an API key that is encrypted on disk; what follows is base64.</summary>
+    private const string SealedPrefix = "dpapi:";
+
     private readonly string _path;
+    private readonly ISecretStore? _secrets;
 
     /// <summary>Loads settings from <paramref name="path"/>, or defaults if absent.</summary>
-    public AppSettings(string path)
+    /// <param name="path">The settings file.</param>
+    /// <param name="secrets">
+    /// Encrypts the API keys in the file, so a copy of <c>settings.json</c> that leaves this
+    /// Windows account (a backup, a screen share, a pasted log) carries no usable key. Null
+    /// leaves them as written, which is all there is off Windows. <see cref="Data"/> always
+    /// holds the keys in the clear; only the file differs.
+    /// </param>
+    public AppSettings(string path, ISecretStore? secrets = null)
     {
         _path = path;
-        Data = Load(path);
+        _secrets = secrets;
+        Data = Load(path, out var plainKeys);
+
+        // A file from before the keys were encrypted is rewritten once, at once.
+        if (plainKeys && secrets is not null) Write(Data);
     }
 
     /// <summary>The default location.</summary>
@@ -240,21 +255,70 @@ public sealed class AppSettings
     public void Update(SettingsData data)
     {
         Data = data;
+        Write(data);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
 
+    private void Write(SettingsData data)
+    {
         try
         {
-            AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(data, SettingsJsonContext.Default.SettingsData));
+            var sealedData = data with
+            {
+                GeminiApiKey = Seal(data.GeminiApiKey),
+                ElevenLabsApiKey = Seal(data.ElevenLabsApiKey),
+                JevApiKey = Seal(data.JevApiKey),
+            };
+            AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(sealedData, SettingsJsonContext.Default.SettingsData));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Log.Warn($"settings could not be saved: {e.Message}");
         }
-
-        Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private static SettingsData Load(string path)
+    private string? Seal(string? key)
     {
+        if (_secrets is null || string.IsNullOrEmpty(key)) return key;
+        try
+        {
+            return SealedPrefix + Convert.ToBase64String(_secrets.Protect(System.Text.Encoding.UTF8.GetBytes(key)));
+        }
+        catch (System.Security.Cryptography.CryptographicException e)
+        {
+            // A key the user just typed must not be lost because encryption failed.
+            Log.Warn($"an API key could not be encrypted and is saved as typed: {e.Message}");
+            return key;
+        }
+    }
+
+    /// <summary>Reads one key from the file. Sets <paramref name="plain"/> if it was not encrypted.</summary>
+    private string? Open(string? stored, ref bool plain)
+    {
+        if (string.IsNullOrEmpty(stored)) return stored;
+        if (!stored.StartsWith(SealedPrefix, StringComparison.Ordinal))
+        {
+            plain = true;
+            return stored;
+        }
+
+        byte[]? clear = null;
+        try
+        {
+            clear = _secrets?.Unprotect(Convert.FromBase64String(stored[SealedPrefix.Length..]));
+        }
+        catch (FormatException)
+        {
+        }
+        if (clear is not null) return System.Text.Encoding.UTF8.GetString(clear);
+
+        Log.Warn("a saved API key belongs to another Windows user or PC; enter it again in Settings");
+        return null;
+    }
+
+    private SettingsData Load(string path, out bool plainKeys)
+    {
+        plainKeys = false;
         // Corrupt or unreadable settings must never stop the app launching — defaults are
         // always a working configuration.
         try
@@ -277,6 +341,9 @@ public sealed class AppSettings
                 if (data.FullStops == TrailingFullStop.DropAfterSingleSentence) data.FullStops = TrailingFullStop.Keep;
                 data.DropSingleSentenceFullStop = true;
             }
+            data.GeminiApiKey = Open(data.GeminiApiKey, ref plainKeys);
+            data.ElevenLabsApiKey = Open(data.ElevenLabsApiKey, ref plainKeys);
+            data.JevApiKey = Open(data.JevApiKey, ref plainKeys);
             return data;
         }
         catch (JsonException e)
