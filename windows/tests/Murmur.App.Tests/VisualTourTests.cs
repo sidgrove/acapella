@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -74,25 +75,61 @@ public sealed class VisualTourTests
 
             main.ReportFault("AI clean-up did not respond, so the local transcript was typed. Check the key and connection in Settings.");
             Save(main, "history-fault");
-            main.FaultNotice.IsVisible = false;
+            main.DismissFault();
 
             Click(main, "Dictionary");
             Save(main, "dictionary-1080");
+            // A fault raised while the status card is off the page stands beside the title.
+            main.ReportFault("AI clean-up did not respond, so the local transcript was typed. Check the key and connection in Settings.");
+            Save(main, "dictionary-fault");
             main.Width = 640; main.Height = 480;
+            Save(main, "dictionary-fault-640");
+            main.DismissFault();
             Save(main, "dictionary-640");
             main.Width = 1080; main.Height = 780;
 
             main.ShowSettings();
             Save(main, "settings-1080");
-            foreach (var (offset, name) in new[] { (700.0, "settings-2"), (1500.0, "settings-3"), (2400.0, "settings-4"), (3400.0, "settings-5") })
+            // Each section opened in place, one at a time, so every setting is seen.
+            var settings = main.GetVisualDescendants().OfType<SettingsView>().Single();
+            foreach (var row in settings.Rows)
             {
-                var scroll = main.GetVisualDescendants().OfType<ScrollViewer>().First(s => s.Content is StackPanel or Border);
-                scroll.Offset = new Avalonia.Vector(0, offset);
-                Save(main, name);
+                row.Press();
+                Save(main, $"settings-open-{row.Title.ToLowerInvariant().Replace(' ', '-')}");
+                row.Press();
             }
+            settings.Rows[2].Press();
             main.Width = 640; main.Height = 480;
+            Save(main, "settings-open-640");
+            settings.Rows[2].Press();
             Save(main, "settings-640");
             main.Close();
+
+            // The section buttons in each state, alone on the canvas: rest, pointer over, chosen, key focus.
+            var states = new List<string>();
+            foreach (var state in new[] { "rest", "hover", "chosen", "focus" })
+            {
+                var links = new[]
+                {
+                    new Murmur.App.Controls.NavLink("Dictations", Murmur.App.Controls.Icons.Mic, Murmur.App.Design.Tokens.Accent.MarkBrand) { IsActive = true },
+                    new Murmur.App.Controls.NavLink("Dictionary", Murmur.App.Controls.Icons.Book, Murmur.App.Design.Tokens.Accent.MarkGreen) { Count = 2 },
+                    new Murmur.App.Controls.NavLink("Settings", Murmur.App.Controls.Icons.Sliders, Murmur.App.Design.Tokens.Accent.MarkPurple),
+                };
+                var strip = new MainWindowStrip(Murmur.App.Controls.NavLink.Track(links));
+                strip.Show();
+                strip.UpdateLayout();
+                if (state == "hover")
+                {
+                    var at = links[1].TranslatePoint(new Avalonia.Point(links[1].Bounds.Width / 2, links[1].Bounds.Height / 2), strip) ?? default;
+                    strip.MouseMove(at);
+                }
+                if (state == "chosen") { links[0].IsActive = false; links[1].IsActive = true; }
+                if (state == "focus") links[0].Focus(Avalonia.Input.NavigationMethod.Tab);
+                Save(strip, $"sections-{state}");
+                states.Add($"sections-{state}");
+                strip.Close();
+            }
+            Sheet("sections-states", states, columns: 4);
 
             var empty = Composition.ForPreview(
                 new AppSettings(Path.Combine(folder, "s2.json")), new DictionaryFile(Path.Combine(folder, "d2.txt")),
@@ -240,6 +277,18 @@ public sealed class VisualTourTests
             Sheet("pill-frames", [.. Directory.GetFiles(Dir, "pill-??-*.png").Select(f => Path.GetFileNameWithoutExtension(f)!).Order(StringComparer.Ordinal)], columns: 4);
         }
         finally { Murmur.App.Design.Tokens.Motion.Animate = animate; }
+    }
+
+    /// <summary>A small shell window holding one control on the app's canvas, so key focus draws as it does in the app.</summary>
+    private sealed class MainWindowStrip : ShellWindow
+    {
+        public MainWindowStrip(Control content)
+        {
+            Width = 400;
+            Height = 64;
+            Background = Murmur.App.Design.Tokens.Canvas.Base;
+            Content = new Border { Padding = new Avalonia.Thickness(16, 0), Child = content };
+        }
     }
 
     /// <summary>Tiles shots already saved into one contact sheet, so a set is judged side by side at real size.</summary>

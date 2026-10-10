@@ -4,7 +4,14 @@ Dave, 10/10/2026, of the main window's tab row: "not sure this is very aligned t
 to be honest with you, nor is potentially the whole of the app, which is looking better but not
 exactly in line potentially with the SIDGrove Bible".
 
-This is an audit and a set of options. **Nothing that ships has changed.** The Bible's rule for a
+> **Built the same day.** Dave, shown the options: "what ever you think then finish up and push and
+> merge go". So the three recommendations were built into the app: nav A (house section buttons),
+> Settings A (folded rows) and status B (the card on Dictations only, a fault as a chip), with the
+> key focus halo and the tray's em dash. Findings marked **Done** below are those; everything else
+> is as found and still open. What was built and the choices made: `DESIGN.md`, "Three picks from
+> the audit, 10 October 2026". Before and after: `docs/screenshots/2026-10-10-bible-build/`.
+
+This is an audit and a set of options. **When it was written, nothing that shipped had changed.** The Bible's rule for a
 screen that is not landing is "Options before a rebuild": Bible it, draw three to five different
 answers on one contact sheet, each named, scored and owned up to, and build only what he picks.
 
@@ -166,20 +173,23 @@ moving part a state, the house loader, nothing after the words land.
 
 ## The top ten, ranked
 
-1. **Settings is feature loud.** Eleven open cards, 33 settings and some 39 question marks in one
-   long scroll. (5.1, 5.2)
-2. **The section switch is the toggle, not the house's section control.** One bed and a gliding thumb
-   where the web app, as of today, uses separate soft squares each wearing a tinted mark. (1.1, 1.2)
-3. **The status card is repeated on every section**, and takes more than a third of the smallest
-   window before any content. The Bible wants state as one chip. (2.1)
+1. **Done (5.1, 5.2).** **Settings is feature loud.** Eleven open cards, 33 settings and some 39
+   question marks in one long scroll. Now eleven folded rows, each saying what it is set to; a
+   row's question marks show only while it is open.
+2. **Done (1.1, 1.2, 1.5).** **The section switch is the toggle, not the house's section control.**
+   One bed and a gliding thumb where the web app, as of today, uses separate soft squares each
+   wearing a tinted mark. 1.3 (the page named twice) and 1.7 (Settings as a third section) are
+   as found.
+3. **Done (2.1).** **The status card is repeated on every section**, and takes more than a third of
+   the smallest window before any content. It now stands on Dictations only.
 4. **Chips that count the rows beneath them**, on Dictations and on Dictionary, the exact thing Dave
    ruled out this morning. Remove first. (3.1, 4.1)
-5. **Keyboard focus is a black box.** No focus style exists in the app, so Tab shows the theme's.
-   (1.4)
+5. **Done (1.4).** **Keyboard focus is a black box.** No focus style existed in the app, so Tab
+   showed the theme's. Every button, switch and toggle now wears the brand halo.
 6. **The switch is a saturated fill**, 18 times over, where the web's is a pale track with a coloured
    thumb and a tick. (2.4)
-7. **A fault is a full-width coral bar with a loose "Dismiss".** It should be a chip on its line.
-   (2.2, 2.3)
+7. **Done (2.2, 2.3).** **A fault is a full-width coral bar with a loose "Dismiss".** It is a chip on
+   the status line, and beside the title on the other two sections; pressing it clears it.
 8. **Red is used where nothing records**: the Microphone card and the welcome's "Try it" tile are
    crimson; Sending is coral, the hue for failed. (5.3, 5.4, 6.4)
 9. **Floating text standing in for buttons**: the welcome trail and "Skip for now", "Not this",
@@ -199,11 +209,12 @@ model's file path line, the em dash, the unused tokens.
 
 ## Options
 
-All of these are real Avalonia controls that live only in the test project
-(`windows/tests/Murmur.App.Tests/BibleAudit/`). Each is stood in the real main window by finding
-the shipping chrome at run time; no shipping file knows they exist. Every value is read from the
-web component named in `Kit.cs`. Regenerate the sheets with `ACAPELLA_VISUAL_DIR=<folder>` and the
-`BibleAuditSheets` tests.
+All of these were real Avalonia controls that lived only in the test project
+(`windows/tests/Murmur.App.Tests/BibleAudit/`, commit `d948e28`), each stood in the real main window
+by finding the shipping chrome at run time. Once the picks were built into the app that folder was
+deleted, as planned, so the options that were not picked ship nowhere; the sheets below are the
+record, and the fixture can be read back from that commit. (Also done from the smaller list: the
+em dash in the tray tooltip, 8.5.)
 
 Each score is the maker's, for the option as drawn, out of 10 against the Part 1 questions; the
 columns are the questions it moves most. None has been seen by anyone else or on a real screen.

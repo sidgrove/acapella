@@ -74,6 +74,9 @@ public static class Icons
     /// <summary>Search.</summary>
     public const string Search = "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M21 21l-4.3-4.3";
 
+    /// <summary>A chevron pointing right: the end of a row that opens.</summary>
+    public const string ChevronRight = "M9 18l6-6-6-6";
+
     /// <summary>A plus.</summary>
     public const string Plus = "M12 5v14 M5 12h14";
 

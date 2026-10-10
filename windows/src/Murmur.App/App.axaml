@@ -13,7 +13,7 @@
        recording, from App.SetTrayRecording. -->
   <TrayIcon.Icons>
     <TrayIcons>
-      <TrayIcon Icon="/Assets/tray.ico" ToolTipText="Acapella — hold the push-to-talk key to dictate" Clicked="OnTrayShow">
+      <TrayIcon Icon="/Assets/tray.ico" ToolTipText="Acapella: hold the push-to-talk key to dictate" Clicked="OnTrayShow">
         <TrayIcon.Menu>
           <NativeMenu>
             <NativeMenuItem Header="Show Acapella" Click="OnTrayShow" />
