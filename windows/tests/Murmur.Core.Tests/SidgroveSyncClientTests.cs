@@ -140,6 +140,81 @@ public sealed class SidgroveSyncClientTests
         server.Seen.Single().Authorization.ShouldBe("Bearer t");
     }
 
+    [Fact]
+    public async Task Keys_are_asked_for_with_the_bearer_token_and_read_from_the_reply()
+    {
+        var server = new FakeServer(_ => (HttpStatusCode.OK,
+            """{"keys":{"gemini":"gemini-key","elevenLabs":" eleven-key ","anthropic":null,"aiGateway":"gateway-key","openAi":"something-newer"},"fetchedAt":"2026-10-10T09:00:00Z"}"""));
+        using var client = new SidgroveSyncClient(() => "sg_acapella_abc", () => "https://staging.sidgrove.test/", server);
+
+        var keys = await client.KeysAsync(CancellationToken.None);
+
+        var request = server.Seen.Single();
+        request.Method.ShouldBe(HttpMethod.Get);
+        request.Uri.ShouldBe("https://staging.sidgrove.test/api/acapella/keys");
+        request.Authorization.ShouldBe("Bearer sg_acapella_abc");
+        request.Body.ShouldBeEmpty();
+        keys.ShouldBe(new ManagedKeySet("gemini-key", "eleven-key", null, "gateway-key"));
+    }
+
+    [Fact]
+    public async Task Keys_the_server_does_not_hold_are_null()
+    {
+        var server = new FakeServer(_ => (HttpStatusCode.OK, """{"keys":{"gemini":null,"elevenLabs":"","aiGateway":null}}"""));
+        using var client = new SidgroveSyncClient(() => "t", handler: server);
+
+        var keys = await client.KeysAsync(CancellationToken.None);
+
+        server.Seen.Single().Uri.ShouldBe("https://intelligence.sidgrove.com/api/acapella/keys");
+        keys.ShouldBe(new ManagedKeySet(null, null, null, null));
+    }
+
+    [Fact]
+    public async Task A_401_for_the_keys_means_signed_out()
+    {
+        var server = new FakeServer(_ => (HttpStatusCode.Unauthorized, """{"error":"invalid token"}"""));
+        using var client = new SidgroveSyncClient(() => "revoked", handler: server);
+
+        await Should.ThrowAsync<SyncUnauthorizedException>(() => client.KeysAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task No_token_means_the_keys_are_not_asked_for()
+    {
+        var server = new FakeServer(_ => (HttpStatusCode.OK, """{"keys":{}}"""));
+        using var client = new SidgroveSyncClient(() => null, handler: server);
+
+        await Should.ThrowAsync<SyncUnauthorizedException>(() => client.KeysAsync(CancellationToken.None));
+        server.Seen.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_older_server_without_the_keys_route_has_none()
+    {
+        var server = new FakeServer(_ => (HttpStatusCode.NotFound, "<html>Not found</html>"));
+        using var client = new SidgroveSyncClient(() => "t", handler: server);
+
+        (await client.KeysAsync(CancellationToken.None)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_failed_keys_call_never_quotes_the_reply()
+    {
+        var broken = new FakeServer(_ => (HttpStatusCode.InternalServerError, """{"keys":{"gemini":"gemini-key"}}"""));
+        using var client = new SidgroveSyncClient(() => "t", handler: broken);
+        var failed = await Should.ThrowAsync<HttpRequestException>(() => client.KeysAsync(CancellationToken.None));
+        failed.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        failed.ToString().ShouldNotContain("gemini-key");
+
+        var garbled = new FakeServer(_ => (HttpStatusCode.OK, """{"keys":{"gemini":"gemini-key","""));
+        using var second = new SidgroveSyncClient(() => "t", handler: garbled);
+        (await Should.ThrowAsync<HttpRequestException>(() => second.KeysAsync(CancellationToken.None))).ToString().ShouldNotContain("gemini-key");
+
+        var empty = new FakeServer(_ => (HttpStatusCode.OK, "{}"));
+        using var third = new SidgroveSyncClient(() => "t", handler: empty);
+        await Should.ThrowAsync<HttpRequestException>(() => third.KeysAsync(CancellationToken.None));
+    }
+
     internal sealed record Seen(HttpMethod Method, string Uri, string? Authorization, string? ContentType, string Body);
 
     internal sealed class FakeServer(Func<Seen, (HttpStatusCode Status, string Body)> answer) : HttpMessageHandler

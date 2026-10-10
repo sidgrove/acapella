@@ -34,9 +34,11 @@ public sealed class Composition : IAsyncDisposable
         IAudioDeviceCatalog? devices,
         bool platformAvailable,
         SuggestionStore suggestions,
+        ApiKeys keys,
         SyncService? sync = null,
         IDisposable? syncClient = null)
     {
+        Keys = keys;
         Sync = sync;
         _syncClient = syncClient;
         Settings = settings;
@@ -51,6 +53,9 @@ public sealed class Composition : IAsyncDisposable
     }
 
     private readonly IDisposable? _syncClient;
+
+    /// <summary>The key each AI client uses: typed in Settings, else from Sidgrove Intelligence, else the environment.</summary>
+    public ApiKeys Keys { get; }
 
     /// <summary>Sync with Sidgrove Intelligence, or null in a preview.</summary>
     public SyncService? Sync { get; }
@@ -90,7 +95,9 @@ public sealed class Composition : IAsyncDisposable
     /// can be built and rendered headless against sample data, never the user's own files.
     /// </summary>
     public static Composition ForPreview(AppSettings settings, DictionaryFile dictionary, TranscriptStore transcripts, SuggestionStore suggestions, SyncService? sync = null) =>
-        new(settings, dictionary, transcripts, engine: null, transcriber: null, startup: null, devices: null, platformAvailable: false, suggestions, sync);
+        // No secret store: the managed keys are held in memory and the user's own file is never touched.
+        new(settings, dictionary, transcripts, engine: null, transcriber: null, startup: null, devices: null, platformAvailable: false, suggestions,
+            new ApiKeys(settings, new ManagedKeys(ManagedKeys.DefaultPath, secrets: null)), sync);
 
     /// <summary>Builds the object graph.</summary>
     public static Composition Create()
@@ -103,6 +110,10 @@ public sealed class Composition : IAsyncDisposable
         PlatformDiagnostics.Sink = message => Log.Warn($"platform: {message}");
 
         var settings = new AppSettings(AppSettings.DefaultPath, PlatformFactory.CreateSecretStore());
+        // The keys Sidgrove Intelligence handed over at sign-in, read from disk once here and
+        // from memory on every dictation; sync keeps them fresh in the background.
+        var managedKeys = new ManagedKeys(ManagedKeys.DefaultPath, PlatformFactory.CreateSecretStore());
+        var keys = new ApiKeys(settings, managedKeys);
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var suggestions = new SuggestionStore(SuggestionStore.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
@@ -170,10 +181,11 @@ public sealed class Composition : IAsyncDisposable
                 AiCleanup = settings.Data.AiCleanup,
                 IsEnabled = settings.Data.IsEnabled,
                 HotkeyModifiers = settings.Data.PushToTalkModifiers,
-                // Key and model are read per call, so pasting a key into Settings works at once.
-                Cleaner = NewCleaner(settings, dictionary),
-                CloudTranscriber = NewCloudTranscriber(settings),
-                Decisions = new JevClient(() => settings.Data.JevApiKey, settings.Data.JevBaseUrl, settings.Data.JevModel),
+                // Key and model are read per call, so pasting a key into Settings, or one
+                // arriving from Sidgrove Intelligence, works at once.
+                Cleaner = NewCleaner(settings, keys, dictionary),
+                CloudTranscriber = NewCloudTranscriber(settings, keys),
+                Decisions = new JevClient(keys.Jev, settings.Data.JevBaseUrl, settings.Data.JevModel),
             };
 
             // What the user makes of each dictation: kept in the history as the words that
@@ -219,18 +231,20 @@ public sealed class Composition : IAsyncDisposable
                 if (settings.Data.IsEnabled) capture!.WarmUp(); else capture!.Release();
                 if (engine.HotkeyVirtualKey != settings.Data.PushToTalkKey) engine.HotkeyVirtualKey = settings.Data.PushToTalkKey;
                 if (engine.HotkeyModifiers != settings.Data.PushToTalkModifiers) engine.HotkeyModifiers = settings.Data.PushToTalkModifiers;
-                if (engine.CloudTranscriber?.Name != NewCloudTranscriber(settings)?.Name) engine.CloudTranscriber = NewCloudTranscriber(settings);
+                // By name, which is the model and never the key: a transcriber made before any
+                // key existed asks for the key at each dictation, so one that arrives later is used.
+                if (engine.CloudTranscriber?.Name != NewCloudTranscriber(settings, keys)?.Name) engine.CloudTranscriber = NewCloudTranscriber(settings, keys);
                 if (engine.Cleaner?.Name != (string.IsNullOrWhiteSpace(settings.Data.GeminiModel) ? GeminiCleaner.DefaultModel : settings.Data.GeminiModel.Trim()))
                 {
                     (engine.Cleaner as IDisposable)?.Dispose();
-                    engine.Cleaner = NewCleaner(settings, dictionary);
+                    engine.Cleaner = NewCleaner(settings, keys, dictionary);
                 }
                 // The key is read per call; only a new base or model needs a new client.
                 if (engine.Decisions is JevClient jev && (jev.Name != (string.IsNullOrWhiteSpace(settings.Data.JevModel) ? JevClient.DefaultModel : settings.Data.JevModel.Trim()) || jevBase != settings.Data.JevBaseUrl))
                 {
                     jevBase = settings.Data.JevBaseUrl;
                     jev.Dispose();
-                    engine.Decisions = new JevClient(() => settings.Data.JevApiKey, settings.Data.JevBaseUrl, settings.Data.JevModel);
+                    engine.Decisions = new JevClient(keys.Jev, settings.Data.JevBaseUrl, settings.Data.JevModel);
                 }
             };
 
@@ -273,7 +287,11 @@ public sealed class Composition : IAsyncDisposable
         var syncEngine = new SyncEngine(syncClient, SyncEngine.DefaultStatePath, Environment.MachineName,
             dictionary, suggestions, transcripts, settings, archive);
         var sync = new SyncService(syncEngine, syncClient, account, settings,
-            token => new SidgroveSignIn(settings.Data.SyncServer, Environment.MachineName, OpenBrowser).RunAsync(token));
+            token => new SidgroveSignIn(settings.Data.SyncServer, Environment.MachineName, OpenBrowser).RunAsync(token))
+        {
+            Keys = managedKeys,
+            KeyServer = syncClient,
+        };
         dictionary.Changed += (_, _) => sync.Notify();
         suggestions.Changed += (_, _) => sync.Notify();
         transcripts.Changed += (_, _) => sync.Notify();
@@ -281,7 +299,7 @@ public sealed class Composition : IAsyncDisposable
         settings.Changed += (_, _) => sync.Notify();
         sync.Start();
 
-        return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available, suggestions, sync, syncClient);
+        return new Composition(settings, dictionary, transcripts, engine, transcriber, startup, devices, available, suggestions, keys, sync, syncClient);
     }
 
     /// <summary>Opens the sign-in page in the default browser.</summary>
@@ -305,14 +323,14 @@ public sealed class Composition : IAsyncDisposable
     /// biased, so this is the one tier that can hear "get pool" as "git pull".
     /// </summary>
     /// <summary>The cloud speech-to-text over the current settings, or null when it is off.</summary>
-    private static IStreamingTranscriber? NewCloudTranscriber(AppSettings settings) =>
+    private static IStreamingTranscriber? NewCloudTranscriber(AppSettings settings, ApiKeys keys) =>
         !settings.Data.CloudTranscription ? null
         : string.Equals(settings.Data.CloudTranscriptionProvider, "gemini", StringComparison.OrdinalIgnoreCase)
-            ? new GeminiLiveTranscriber(() => settings.Data.GeminiApiKey, settings.Data.CloudTranscriptionModel, settings.Data.BritishSpelling ? "en-GB" : "en-US")
-            : new ElevenLabsTranscriber(() => settings.Data.ElevenLabsApiKey, settings.Data.CloudTranscriptionModel);
+            ? new GeminiLiveTranscriber(keys.Gemini, settings.Data.CloudTranscriptionModel, settings.Data.BritishSpelling ? "en-GB" : "en-US")
+            : new ElevenLabsTranscriber(keys.ElevenLabs, settings.Data.CloudTranscriptionModel);
 
-    private static ITranscriptCleaner NewCleaner(AppSettings settings, DictionaryFile dictionary) =>
-        TranscriptCleaners.Create(settings.Data.GeminiModel, () => settings.Data.GeminiApiKey, () => settings.Data.AnthropicApiKey,
+    private static ITranscriptCleaner NewCleaner(AppSettings settings, ApiKeys keys, DictionaryFile dictionary) =>
+        TranscriptCleaners.Create(settings.Data.GeminiModel, keys.Gemini, keys.Anthropic,
             customInstructions: () => settings.Data.CustomInstructions,
             vocabulary: () => DictionaryCorrector.BiasPhrases(dictionary.Entries));
 

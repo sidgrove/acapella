@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Murmur.Abstractions;
 using Murmur.Core;
+using Murmur.Core.Sync;
 using Murmur.Dictionary;
 using Murmur.Speech;
 
@@ -92,6 +93,8 @@ internal static class QualityCommands
     private static async Task<int> CompareAsync(string[] models, int days, int limit, bool yes)
     {
         var settings = new AppSettings(AppSettings.DefaultPath, PlatformFactory.CreateSecretStore());
+        // The same keys a live dictation uses: typed in Settings, else from Sidgrove Intelligence, else the environment.
+        var keys = new ApiKeys(settings, new ManagedKeys(ManagedKeys.DefaultPath, PlatformFactory.CreateSecretStore()));
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
         var since = DateTimeOffset.Now.AddDays(-days);
@@ -131,7 +134,7 @@ internal static class QualityCommands
         output.AppendLine();
         foreach (var model in models)
         {
-            var cleaner = TranscriptCleaners.Create(model, () => settings.Data.GeminiApiKey, () => settings.Data.AnthropicApiKey,
+            var cleaner = TranscriptCleaners.Create(model, keys.Gemini, keys.Anthropic,
                 customInstructions: () => settings.Data.CustomInstructions,
                 vocabulary: () => DictionaryCorrector.BiasPhrases(dictionary.Entries));
             using var owned = cleaner as IDisposable;

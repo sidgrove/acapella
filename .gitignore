@@ -28,3 +28,6 @@ windows/dist/
 
 # Mac distributable, produced by `make dist` at the repo root
 /dist/
+
+# Background workers' checkouts
+.claude/worktrees/
