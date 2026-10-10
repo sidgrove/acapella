@@ -16,7 +16,7 @@ namespace Murmur.Speech;
 /// <see cref="SyncUnauthorizedException"/>; other failures surface as
 /// <see cref="HttpRequestException"/> for the service to back off on.
 /// </remarks>
-public sealed class SidgroveSyncClient : ISyncServer, IDisposable
+public sealed class SidgroveSyncClient : ISyncServer, IManagedKeyServer, IDisposable
 {
     /// <summary>Where Sidgrove Intelligence lives.</summary>
     public const string DefaultBaseUrl = "https://intelligence.sidgrove.com";
@@ -98,6 +98,30 @@ public sealed class SidgroveSyncClient : ISyncServer, IDisposable
         await EnsureAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<ManagedKeySet?> KeysAsync(CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync(HttpMethod.Get, "/api/acapella/keys", null, cancellationToken).ConfigureAwait(false);
+        // An older server without the route: no managed keys, and nothing to tell the user.
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        await EnsureAsync(response, cancellationToken, quoteBody: false).ConfigureAwait(false);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        KeysBody keys;
+        try
+        {
+            keys = JsonSerializer.Deserialize(payload, SyncWireContext.Default.KeysReply)?.Keys
+                   ?? throw new HttpRequestException("The sync server sent no keys object.");
+        }
+        catch (JsonException)
+        {
+            // Not rethrown as it is: a JSON error can quote the text around where it stopped.
+            throw new HttpRequestException("The sync server's keys reply could not be read.");
+        }
+        return new ManagedKeySet(Clean(keys.Gemini), Clean(keys.ElevenLabs), Clean(keys.Anthropic), Clean(keys.AiGateway));
+    }
+
+    private static string? Clean(string? key) => string.IsNullOrWhiteSpace(key) ? null : key.Trim();
+
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, string? json, CancellationToken cancellationToken)
     {
         var token = _token();
@@ -109,10 +133,14 @@ public sealed class SidgroveSyncClient : ISyncServer, IDisposable
         return await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task EnsureAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    /// <param name="response">The reply to check.</param>
+    /// <param name="cancellationToken">Cancels reading the body.</param>
+    /// <param name="quoteBody">False for the keys route, whose reply must never reach an exception message and so the log.</param>
+    private static async Task EnsureAsync(HttpResponseMessage response, CancellationToken cancellationToken, bool quoteBody = true)
     {
         if (response.StatusCode == HttpStatusCode.Unauthorized) throw new SyncUnauthorizedException();
         if (response.IsSuccessStatusCode) return;
+        if (!quoteBody) throw new HttpRequestException($"{(int)response.StatusCode} {response.ReasonPhrase}", null, response.StatusCode);
         var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new HttpRequestException($"{(int)response.StatusCode} {response.ReasonPhrase}: {(payload.Length > 200 ? payload[..200] : payload)}", null, response.StatusCode);
     }
@@ -127,6 +155,14 @@ public sealed class SidgroveSyncClient : ISyncServer, IDisposable
         [property: JsonPropertyName("action")] string Action);
 
     internal sealed record UrlReply([property: JsonPropertyName("url")] string? Url);
+
+    internal sealed record KeysReply([property: JsonPropertyName("keys")] KeysBody? Keys);
+
+    internal sealed record KeysBody(
+        [property: JsonPropertyName("gemini")] string? Gemini,
+        [property: JsonPropertyName("elevenLabs")] string? ElevenLabs,
+        [property: JsonPropertyName("anthropic")] string? Anthropic,
+        [property: JsonPropertyName("aiGateway")] string? AiGateway);
 
     internal sealed record TokenRequest(
         [property: JsonPropertyName("code")] string Code,
@@ -146,4 +182,5 @@ public sealed class SidgroveSyncClient : ISyncServer, IDisposable
 [JsonSerializable(typeof(SidgroveSyncClient.UrlReply))]
 [JsonSerializable(typeof(SidgroveSyncClient.TokenRequest))]
 [JsonSerializable(typeof(SidgroveSyncClient.TokenReply))]
+[JsonSerializable(typeof(SidgroveSyncClient.KeysReply))]
 internal sealed partial class SyncWireContext : JsonSerializerContext;

@@ -123,6 +123,38 @@ public interface ISyncServer
     Task RevokeAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// The AI provider keys Sidgrove Intelligence hands a signed-in PC (docs/sync.md, "Keys").
+/// A null is a key the server does not hold.
+/// </summary>
+/// <param name="Gemini">The Gemini key, for the clean-up and Gemini's cloud hearing.</param>
+/// <param name="ElevenLabs">The ElevenLabs key, for cloud hearing.</param>
+/// <param name="Anthropic">The Anthropic key, for a Claude clean-up model.</param>
+/// <param name="AiGateway">The Vercel AI Gateway key, for Jev.</param>
+public sealed record ManagedKeySet(string? Gemini, string? ElevenLabs, string? Anthropic, string? AiGateway)
+{
+    /// <summary>How many of the four are present.</summary>
+    [JsonIgnore]
+    public int Count => new[] { Gemini, ElevenLabs, Anthropic, AiGateway }.Count(k => !string.IsNullOrWhiteSpace(k));
+
+    /// <summary>Never the keys themselves: this record must be safe to end up in a log line.</summary>
+    public override string ToString() => $"{nameof(ManagedKeySet)} ({Count} of 4)";
+}
+
+/// <summary>
+/// Where the managed keys come from: Sidgrove Intelligence in the app, a stand-in in tests.
+/// Separate from <see cref="ISyncServer"/> so a fake of one need not answer for the other.
+/// </summary>
+public interface IManagedKeyServer
+{
+    /// <summary>
+    /// The keys the server holds for this account, or null when the server is an older one
+    /// without the route. Throws <see cref="SyncUnauthorizedException"/> on a refused token
+    /// and lets network failures through.
+    /// </summary>
+    Task<ManagedKeySet?> KeysAsync(CancellationToken cancellationToken);
+}
+
 /// <summary>The server refused the device token: the user has to sign in again.</summary>
 public sealed class SyncUnauthorizedException : Exception
 {

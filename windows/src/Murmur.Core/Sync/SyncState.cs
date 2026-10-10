@@ -109,4 +109,5 @@ public sealed record SyncAccountData(
 [JsonSerializable(typeof(DictionaryLine))]
 [JsonSerializable(typeof(RecordingData))]
 [JsonSerializable(typeof(SyncAccountData))]
+[JsonSerializable(typeof(Murmur.Abstractions.ManagedKeySet))]
 public sealed partial class SyncJsonContext : JsonSerializerContext;
