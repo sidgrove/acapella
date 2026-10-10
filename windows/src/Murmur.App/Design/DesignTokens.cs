@@ -31,11 +31,11 @@ public static class Tokens
         /// <summary>How long the send confirmation remains visible.</summary>
         public static TimeSpan Duration { get; } = TimeSpan.FromMilliseconds(1100);
         /// <summary>Number of animated colour bars.</summary>
-        public const int Bars = 28;
-        /// <summary>Width of the coloured wave.</summary>
-        public const double Width = 210;
-        /// <summary>Height of the coloured wave.</summary>
-        public const double Height = 28;
+        public const int Bars = 20;
+        /// <summary>Width of the coloured wave: what the pill's row leaves beside the tile and the word.</summary>
+        public const double Width = 150;
+        /// <summary>Height of the coloured wave, the listening bars' height so the row never moves.</summary>
+        public const double Height = 22;
         /// <summary>Gap between bars.</summary>
         public const double Gap = 3;
         /// <summary>Bar corner radius.</summary>
@@ -350,6 +350,12 @@ public static class Tokens
 
         /// <summary>Idle listening bars.</summary>
         public static IBrush BarsIdle { get; } = new SolidColorBrush(Colors.BrandMid, Opacity.BarsIdle);
+
+        /// <summary>
+        /// A scrolling list's slim bar at rest: the brand's soft mid, not the theme's near-black line,
+        /// so a list says it scrolls softly (the Bible, Part 2 §4, "Scrolling lists say so softly").
+        /// </summary>
+        public static IBrush ScrollThumb { get; } = new SolidColorBrush(Colors.BrandMid);
 
         /// <summary>The hero grid lines, brand at 6%. <c>.grid-pattern</c>.</summary>
         /// <summary>Sidgrove's upper periwinkle bloom.</summary>
@@ -858,14 +864,33 @@ public static class Tokens
         /// <summary>Minimum bar height as a fraction of the field.</summary>
         public const double BarMinFraction = 0.10;
 
-        /// <summary>Overlay pill height.</summary>
-        public const double OverlayHeight = 100;
-        /// <summary>Maximum additional height for live transcript lines.</summary>
+        /// <summary>
+        /// The overlay pill at rest: one row, a 32px tile with 12px of air and the hairline. It was a
+        /// 100px box that stood mostly empty (Dave, 10/10/2026: "more joy" in the popup).
+        /// </summary>
+        public const double OverlayHeight = 58;
+        /// <summary>The most the live transcript adds beneath the row: four whole lines, never a cut one.</summary>
         public const double OverlayTextHeight = 80;
-        /// <summary>Visible listening card width, excluding shadow room.</summary>
-        public const double OverlayWidth = 300;
-        /// <summary>Listening meter height.</summary>
-        public const double OverlayBarsHeight = 36;
+        /// <summary>One line of the live transcript.</summary>
+        public const double OverlayLineHeight = 20;
+        /// <summary>Visible pill width, excluding shadow room.</summary>
+        public const double OverlayWidth = 320;
+        /// <summary>Listening meter height in the pill's row.</summary>
+        public const double OverlayBarsHeight = 22;
+        /// <summary>Listening bars in the pill's row.</summary>
+        public const int OverlayBars = 18;
+        /// <summary>How far the pill rises as it arrives and sinks as it goes.</summary>
+        public const double OverlayTravel = 8;
+
+        /// <summary>
+        /// One dot of the house loader ("three small bouncing dots", the Bible, Part 2 §4). The Bible's
+        /// 8px is for a card; beside 3px bars in a 58px pill that shouts, so the pill's are 6.
+        /// </summary>
+        public const double LoaderDot = 6;
+        /// <summary>Between the loader's dots.</summary>
+        public const double LoaderGap = 5;
+        /// <summary>How high a loader dot hops.</summary>
+        public const double LoaderBounce = 5;
         /// <summary>Display gain for quiet microphone levels; does not change captured audio.</summary>
         public const double OverlayLevelGain = 4;
 
@@ -923,8 +948,11 @@ public static class Tokens
         /// <summary>Distance of the overlay from the bottom of the work area.</summary>
         public const double OverlayBottomMargin = 48;
 
-        /// <summary>Widest the overlay preview text may grow before it is trimmed from the left.</summary>
-        public const double OverlayPreviewWidth = 274;
+        /// <summary>
+        /// The live transcript's column in the pill: it hangs under the state word, the tile standing
+        /// clear to its left as an app's mark does on a history row.
+        /// </summary>
+        public const double OverlayPreviewWidth = 250;
 
         /// <summary>How many characters of the running transcript the overlay shows.</summary>
         public const int OverlayPreviewChars = 240;
@@ -1000,6 +1028,27 @@ public static class Tokens
 
         /// <summary>How long "Copied" stays on a button.</summary>
         public static TimeSpan Confirmation { get; } = TimeSpan.FromMilliseconds(1400);
+
+        /// <summary>The pill arriving: a short rise and fade, easing out.</summary>
+        public static TimeSpan OverlayIn { get; } = TimeSpan.FromMilliseconds(180);
+
+        /// <summary>The pill leaving, quicker than it came.</summary>
+        public static TimeSpan OverlayOut { get; } = TimeSpan.FromMilliseconds(140);
+
+        /// <summary>How long the pill says "Done" before it goes: once, small (the Bible, Part 1, question 13).</summary>
+        public static TimeSpan DoneNotice { get; } = TimeSpan.FromMilliseconds(700);
+
+        /// <summary>The done tick drawing itself in.</summary>
+        public static TimeSpan TickDraw { get; } = TimeSpan.FromMilliseconds(280);
+
+        /// <summary>One round of the loader's three dots.</summary>
+        public static TimeSpan LoaderRound { get; } = TimeSpan.FromMilliseconds(1100);
+
+        /// <summary>How far round behind its neighbour each loader dot hops, as a fraction of a round.</summary>
+        public const double LoaderStagger = 0.16;
+
+        /// <summary>Where a state tile starts from as it changes state, springing back to full size.</summary>
+        public const double TilePop = 0.86;
 
         /// <summary>How long the pill says "Nothing heard" before it goes.</summary>
         public static TimeSpan DroppedNotice { get; } = TimeSpan.FromMilliseconds(1200);

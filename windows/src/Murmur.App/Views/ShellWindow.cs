@@ -35,6 +35,13 @@ public abstract class ShellWindow : Window
         TransparencyLevelHint = [WindowTransparencyLevel.None];
         FontFamily = Tokens.Fonts.Sans;
 
+        // A scrolling list says so softly: the theme's slim bar in the brand's mid tone, not a
+        // near-black line on the canvas, firming to the brand under the pointer.
+        Resources["ScrollBarPanningThumbBackground"] = Tokens.Brushes.ScrollThumb;
+        Resources["ScrollBarThumbFill"] = Tokens.Brushes.ScrollThumb;
+        Resources["ScrollBarThumbFillPointerOver"] = Tokens.Brushes.Brand;
+        Resources["ScrollBarThumbFillPressed"] = Tokens.Brushes.BrandStrong;
+
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key != Key.Space || e.KeyModifiers != KeyModifiers.Alt) return;

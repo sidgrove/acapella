@@ -407,11 +407,49 @@ public sealed class NavLink : Button
     }
 
     private GlidePanel? _glide;
+    private bool _compact;
+    private bool _namedByTip;
 
     /// <summary>Whether this link is the current section.</summary>
     public bool IsActive
     {
         get => _active;
-        set { _active = value; _face.Paint(value); _glide?.Refresh(); }
+        set { _active = value; _face.Paint(value); Shape(); _glide?.Refresh(); }
+    }
+
+    /// <summary>
+    /// In a window too narrow for every section's name, the sections that are not current keep
+    /// their mark and give up their word (it moves to the tooltip), so nothing on the title row
+    /// is cut off at the edge. The Bible: "Nothing clips."
+    /// </summary>
+    public bool IsCompact
+    {
+        get => _compact;
+        set
+        {
+            if (_compact == value) return;
+            _compact = value;
+            // A mark alone needs its name somewhere; a link that already explains itself keeps its own
+            // tip, and the name goes again with the room back (a tip never repeats the word beside it).
+            if (value && ToolTip.GetTip(this) is null)
+            {
+                ToolTip.SetTip(this, Text);
+                _namedByTip = true;
+            }
+            else if (!value && _namedByTip)
+            {
+                ToolTip.SetTip(this, null);
+                _namedByTip = false;
+            }
+            Shape();
+            _glide?.Refresh();
+        }
+    }
+
+    private void Shape()
+    {
+        var bare = _compact && !_active;
+        _face.Label.IsVisible = !bare;
+        _surface.Padding = bare ? new Thickness(_face.Padding.Left, 0) : _face.Padding;
     }
 }
