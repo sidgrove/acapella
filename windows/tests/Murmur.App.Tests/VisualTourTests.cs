@@ -277,7 +277,7 @@ public sealed class VisualTourTests
         frame?.Save(Path.Combine(Dir!, $"{name}.png"));
     }
 
-    private static void Click(Window window, string text, bool button = false)
+    internal static void Click(Window window, string text, bool button = false)
     {
         Avalonia.Controls.Button? target = button
             ? window.GetVisualDescendants().OfType<Murmur.App.Controls.SgButton>().FirstOrDefault(b => Equals(b.Content, text) && b.IsEffectivelyVisible)
@@ -285,7 +285,7 @@ public sealed class VisualTourTests
         target?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
     }
 
-    private static Composition Sample(string folder)
+    internal static Composition Sample(string folder)
     {
         var settings = new AppSettings(Path.Combine(folder, "settings.json"));
         settings.Update(settings.Data with { HasOnboarded = true, AiCleanup = true, CustomInstructions = "Use English spellings\nDon't put commas before and" });
