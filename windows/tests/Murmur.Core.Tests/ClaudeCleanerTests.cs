@@ -108,6 +108,20 @@ public sealed class ClaudeCleanerTests
     }
 
     [Theory]
+    [InlineData("gemini-2.5-flash", """{"thinkingBudget":0}""")]
+    [InlineData("gemini-3.8-flash", """{"thinkingBudget":0}""")]
+    [InlineData("gemini-3.5-flash-lite", """{"thinkingLevel":"minimal"}""")]
+    public async Task Gemini_thinking_is_switched_off_the_way_each_model_accepts(string model, string expected)
+    {
+        var handler = new Handler("""{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}""");
+        using var cleaner = new GeminiCleaner(() => "key", model, handler);
+
+        await cleaner.CleanAsync("raw", CancellationToken.None);
+
+        JsonDocument.Parse(handler.Body.ShouldNotBeNull()).RootElement.GetProperty("generationConfig").GetProperty("thinkingConfig").GetRawText().ShouldBe(expected);
+    }
+
+    [Theory]
     [InlineData("claude-haiku-5-5", typeof(ClaudeCleaner))]
     [InlineData(" Claude-Sonnet-5-5 ", typeof(ClaudeCleaner))]
     [InlineData("gemini-2.5-flash", typeof(GeminiCleaner))]

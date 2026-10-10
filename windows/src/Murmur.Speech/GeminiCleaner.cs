@@ -341,7 +341,7 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
             GenerationConfig: new GenerationConfig(
                 Temperature: 0,
                 MaxOutputTokens: null,
-                ThinkingConfig: new ThinkingConfig(0)));
+                ThinkingConfig: ThinkingOff(_model)));
 
         var body = JsonSerializer.Serialize(request, GeminiJsonContext.Default.GenerateRequest);
 
@@ -486,7 +486,18 @@ public sealed partial class GeminiCleaner : ITranscriptCleaner, IDisposable
         [property: JsonPropertyName("maxOutputTokens")] int? MaxOutputTokens,
         [property: JsonPropertyName("thinkingConfig")] ThinkingConfig ThinkingConfig);
 
-    internal sealed record ThinkingConfig([property: JsonPropertyName("thinkingBudget")] int ThinkingBudget);
+    internal sealed record ThinkingConfig(
+        [property: JsonPropertyName("thinkingBudget")] int? ThinkingBudget,
+        [property: JsonPropertyName("thinkingLevel")] string? ThinkingLevel = null);
+
+    /// <summary>
+    /// How thinking is switched off for <paramref name="model"/>. Tried on 10/10/2026: a
+    /// budget of zero works on 2.5 Flash, 3.6 Flash, 3.8 Flash and 3.1 Flash-Lite, and is
+    /// "an invalid argument" on 3.5 Flash-Lite, which wants the level "minimal"; that level
+    /// is in turn refused by 3.8 Flash.
+    /// </summary>
+    internal static ThinkingConfig ThinkingOff(string model) =>
+        model.StartsWith("gemini-3.5-", StringComparison.OrdinalIgnoreCase) ? new ThinkingConfig(null, "minimal") : new ThinkingConfig(0);
 
     internal sealed record GenerateResponse([property: JsonPropertyName("candidates")] IReadOnlyList<Candidate>? Candidates);
 
