@@ -101,7 +101,7 @@ public sealed class SettingsView : UserControl
             Panels.SettingsCard(Icons.Send, Tokens.Accent.Coral, "Sending", "Say a word at the end and Acapella presses Enter for you once the text is in.", BuildSendingSection()),
             Panels.SettingsCard(Icons.Sparkles, Tokens.Accent.Plum, "AI clean-up", "Gemini tidies the words before they're typed, without changing what you meant.", BuildAiSection()),
             Panels.SettingsCard(Icons.Learn, Tokens.Accent.Brand, "Learning from you", "Acapella watches what you change after it types, to measure itself and to learn your words.", BuildLearningSection()),
-            Panels.SettingsCard(Icons.Zap, Tokens.Accent.Info, "Jev decisions", "TypeSafe's Jev answers small yes or no questions in about a tenth of a second: was that a send command, was that fix a mishearing, what kind of writing is this app for. Nothing you're waiting on waits for it. Leave the key blank to switch it off.", BuildJevSection()),
+            Panels.SettingsCard(Icons.Zap, Tokens.Accent.Info, "Jev decisions", "TypeSafe's Jev answers small yes or no questions in about a tenth of a second: was that a send command, was that fix a mishearing, what kind of writing is this app for. Nothing you're waiting on waits for it. With no key from anywhere it is switched off.", BuildJevSection()),
             Panels.SettingsCard(Icons.Cloud, Tokens.Accent.Emerald, "Sync", "Keeps your dictionary, learnt fixes, history, settings and corrected recordings the same on each of your PCs, through Sidgrove Intelligence. The microphone, model folder and push-to-talk key stay as each PC has them.", new SyncPart(composition.Sync)),
             Panels.SettingsCard(Icons.Toggle, Tokens.Accent.Slate, "Behaviour", null, BuildBehaviourSection()));
         body.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Section);
@@ -147,7 +147,7 @@ public sealed class SettingsView : UserControl
     private StackPanel BuildHearingSection() => Panels.Column(Tokens.Space.Wide,
         _model,
         Panels.SwitchRow("Also hear me in the cloud",
-            "Streams your voice to ElevenLabs Scribe while the key is held. Its words and the local model's both go to the clean-up, which takes each word from whichever makes more sense: about a third fewer mistakes on your own dictations. Your dictionary goes as its word list. It uses the ELEVENLABS_API_KEY on this PC and costs about 35p an hour of speech; if it fails or is late, the local model's words are used.",
+            "Streams your voice to ElevenLabs Scribe while the key is held. Its words and the local model's both go to the clean-up, which takes each word from whichever makes more sense: about a third fewer mistakes on your own dictations. Your dictionary goes as its word list. It uses the key from Sidgrove Intelligence when this PC is signed in to sync, otherwise the ELEVENLABS_API_KEY on this PC, and costs about 35p an hour of speech; if it fails or is late, the local model's words are used.",
             _settings.Data.CloudTranscription, v => Save(_settings.Data with { CloudTranscription = v })));
 
     private StackPanel BuildWritingSection()
@@ -202,13 +202,13 @@ public sealed class SettingsView : UserControl
 
     private StackPanel BuildAiSection()
     {
-        var key = Debounced(Sized(Field.Text("or leave blank to use GEMINI_API_KEY", _settings.Data.GeminiApiKey, secret: true), Tokens.Layout.FieldWide), text =>
+        var key = Debounced(Sized(Field.Text("Sidgrove Intelligence's key, or GEMINI_API_KEY", _settings.Data.GeminiApiKey, secret: true), Tokens.Layout.FieldWide), text =>
         {
             var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
             if (_settings.Data.GeminiApiKey != value) Save(_settings.Data with { GeminiApiKey = value });
         });
 
-        var anthropicKey = Debounced(Sized(Field.Text("or leave blank to use ANTHROPIC_API_KEY", _settings.Data.AnthropicApiKey, secret: true), Tokens.Layout.FieldWide), text =>
+        var anthropicKey = Debounced(Sized(Field.Text("Sidgrove Intelligence's key, or ANTHROPIC_API_KEY", _settings.Data.AnthropicApiKey, secret: true), Tokens.Layout.FieldWide), text =>
         {
             var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
             if (_settings.Data.AnthropicApiKey != value) Save(_settings.Data with { AnthropicApiKey = value });
@@ -237,7 +237,7 @@ public sealed class SettingsView : UserControl
             result.Text = "Asking…";
             try
             {
-                var cleaner = TranscriptCleaners.Create(_settings.Data.GeminiModel, () => _settings.Data.GeminiApiKey, () => _settings.Data.AnthropicApiKey, customInstructions: () => _settings.Data.CustomInstructions);
+                var cleaner = TranscriptCleaners.Create(_settings.Data.GeminiModel, _composition.Keys.Gemini, _composition.Keys.Anthropic,customInstructions: () => _settings.Data.CustomInstructions);
                 using var owned = cleaner as IDisposable;
                 var clock = Stopwatch.StartNew();
                 var cleaned = await cleaner.CleanAsync(sample, CancellationToken.None).ConfigureAwait(true);
@@ -260,8 +260,8 @@ public sealed class SettingsView : UserControl
             Panels.SwitchRow("Match the writing to the app",
                 "An email gets short paragraphs with your greeting and sign-off on their own lines, a Slack or Teams message stays one message, a prompt to Claude or ChatGPT keeps file names and code as said. Your words stay yours. Apps it doesn't know are judged by Jev while you talk.",
                 _settings.Data.MatchStyleToApp, v => Save(_settings.Data with { MatchStyleToApp = v })),
-            Panels.FieldRow("Gemini API key", null, key),
-            Panels.FieldRow("Anthropic API key", "Only needed when the model below is a Claude one.", anthropicKey),
+            Panels.FieldRow("Gemini API key", "Leave it blank to use the key from Sidgrove Intelligence when this PC is signed in to sync, otherwise the GEMINI_API_KEY on this PC.", key),
+            Panels.FieldRow("Anthropic API key", "Only needed when the model below is a Claude one. Leave it blank to use the key from Sidgrove Intelligence when this PC is signed in to sync, otherwise the ANTHROPIC_API_KEY on this PC.", anthropicKey),
             Panels.FieldRow("Model", $"{GeminiCleaner.DefaultModel} uses the Gemini key; {ClaudeCleaner.DefaultModel} uses the Anthropic key. The change applies to the next dictation.", model),
             Panels.FieldRow("Your own instructions", "Rules the clean-up follows on every dictation, in your own words.", custom),
             Panels.FieldRow(string.Empty, null, Panels.Column(Tokens.Space.Snug, test, result)));
@@ -280,7 +280,7 @@ public sealed class SettingsView : UserControl
 
     private StackPanel BuildJevSection()
     {
-        var jevKey = Debounced(Sized(Field.Text("or leave blank to use AI_GATEWAY_API_KEY", _settings.Data.JevApiKey, secret: true), Tokens.Layout.FieldWide), text =>
+        var jevKey = Debounced(Sized(Field.Text("Sidgrove Intelligence's key, or AI_GATEWAY_API_KEY", _settings.Data.JevApiKey, secret: true), Tokens.Layout.FieldWide), text =>
         {
             var value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
             if (_settings.Data.JevApiKey != value) Save(_settings.Data with { JevApiKey = value });
@@ -305,7 +305,7 @@ public sealed class SettingsView : UserControl
             jevResult.Text = "Asking…";
             try
             {
-                using var jev = new JevClient(() => _settings.Data.JevApiKey, _settings.Data.JevBaseUrl, _settings.Data.JevModel);
+                using var jev = new JevClient(_composition.Keys.Jev,_settings.Data.JevBaseUrl, _settings.Data.JevModel);
                 var clock = Stopwatch.StartNew();
                 var answers = await jev.DecideAsync("Okay, finish up, send it.",
                     [new DecisionQuestion("send", "noul", "The speaker finishes by telling the dictation app to send the message.")], CancellationToken.None).ConfigureAwait(true);
@@ -320,7 +320,7 @@ public sealed class SettingsView : UserControl
         };
 
         return Panels.Column(Tokens.Space.Base,
-            Panels.FieldRow("Vercel AI Gateway key", null, jevKey),
+            Panels.FieldRow("Vercel AI Gateway key", "Leave it blank to use the key from Sidgrove Intelligence when this PC is signed in to sync, otherwise the AI_GATEWAY_API_KEY on this PC.", jevKey),
             Panels.FieldRow("Base URL", "Leave it as it is unless you mean to change it.", jevBase),
             Panels.FieldRow("Model", "Leave it as it is unless you mean to change it.", jevModel),
             Panels.FieldRow(string.Empty, null, Panels.Column(Tokens.Space.Snug, jevTest, jevResult)));

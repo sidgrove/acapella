@@ -18,7 +18,8 @@ public sealed record SyncStatus(bool CanSignIn, string? Email, DateTimeOffset? L
 
 /// <summary>
 /// Runs <see cref="SyncEngine"/> in the background: once at start-up, a short while after
-/// anything changes, and every few minutes, one run at a time.
+/// anything changes, and every few minutes, one run at a time. It also keeps the keys from
+/// Sidgrove Intelligence fresh (<see cref="ManagedKeys"/>), beside the runs rather than in them.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -55,6 +56,11 @@ public sealed class SyncService : IAsyncDisposable
     private string? _problem;
     private DateTimeOffset? _lastSyncedAt;
 
+    private readonly Lock _keysGate = new();
+    private DateTimeOffset _keysDueAt = DateTimeOffset.MinValue;
+    private int _keysEpoch;
+    private Task _keysFetch = Task.CompletedTask;
+
     /// <summary>Creates the service. Nothing runs until <see cref="Start"/>.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server, for revoking the token on sign-out.</param>
@@ -82,6 +88,21 @@ public sealed class SyncService : IAsyncDisposable
 
     /// <summary>The longest pause between failed attempts.</summary>
     public TimeSpan MaxBackoff { get; init; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Where the keys from Sidgrove Intelligence are kept (docs/sync.md, "Keys"); null, with
+    /// <see cref="KeyServer"/>, where they are not fetched at all.
+    /// </summary>
+    public ManagedKeys? Keys { get; init; }
+
+    /// <summary>Where the keys are fetched from.</summary>
+    public IManagedKeyServer? KeyServer { get; init; }
+
+    /// <summary>How long fetched keys are trusted before they are asked for again.</summary>
+    public TimeSpan KeyRefreshInterval { get; init; } = TimeSpan.FromHours(12);
+
+    /// <summary>How long after a failed fetch the keys are asked for again.</summary>
+    public TimeSpan KeyRetryInterval { get; init; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Whether a run would do anything: signed in and switched on.</summary>
     public bool IsActive => _account.IsSignedIn && _settings.Data.SyncEnabled;
@@ -148,6 +169,7 @@ public sealed class SyncService : IAsyncDisposable
             if (!_settings.Data.SyncEnabled) _settings.Update(_settings.Data with { SyncEnabled = true });
             Log.Info($"sync: signed in as {result.Email}");
             Raise();
+            RefreshKeys(force: true);
             _ = SyncNowAsync();
         }
         else
@@ -181,6 +203,7 @@ public sealed class SyncService : IAsyncDisposable
                 }
             }
             _account.Clear();
+            ForgetKeys();
             _engine.Reset();
             _lastSyncedAt = null;
             _problem = null;
@@ -281,6 +304,8 @@ public sealed class SyncService : IAsyncDisposable
         try
         {
             lock (_timing) _lastAttempt = Now;
+            // Rides on this rhythm but not on this run: started and left, never awaited.
+            RefreshKeys(force: false);
             if (!IsActive) return false;
 
             _running = true;
@@ -300,6 +325,7 @@ public sealed class SyncService : IAsyncDisposable
         {
             Log.Warn("sync: the server no longer accepts this PC's sign-in; sign in again");
             _account.Clear();
+            ForgetKeys();
             _problem = "Sign in again: Sidgrove Intelligence no longer recognises this PC.";
             return false;
         }
@@ -331,6 +357,97 @@ public sealed class SyncService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Fetches the keys in the background when signed in and they are due: straight after a
+    /// sign-in (<paramref name="force"/>), on the first run after start-up, and then once
+    /// <see cref="KeyRefreshInterval"/> has passed. Returns at once; a sync run or a dictation
+    /// never waits on it, and the keys in use stay in use until new ones arrive.
+    /// </summary>
+    private void RefreshKeys(bool force)
+    {
+        if (Keys is null || KeyServer is not { } server || _disposed || !_account.IsSignedIn) return;
+
+        lock (_keysGate)
+        {
+            if (!force && Now < _keysDueAt) return;
+            CancellationToken stop;
+            try
+            {
+                stop = _stop.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            _keysDueAt = Now + KeyRefreshInterval;
+            // A newer fetch, a sign-out or a 401 makes an older fetch's answer stale.
+            var epoch = ++_keysEpoch;
+            _keysFetch = Task.Run(() => FetchKeysAsync(server, epoch, stop), CancellationToken.None);
+        }
+    }
+
+    private async Task FetchKeysAsync(IManagedKeyServer server, int epoch, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            var keys = await server.KeysAsync(timeout.Token).ConfigureAwait(false);
+            lock (_keysGate)
+            {
+                if (epoch != _keysEpoch) return;
+                if (keys is null)
+                {
+                    // An older server without the route. What is already stored is left alone.
+                    Log.Info("keys: Sidgrove Intelligence hands out no keys yet; using the ones on this PC");
+                    return;
+                }
+                Keys!.Save(keys);
+                Log.Info($"keys: {keys.Count} of 4 received from Sidgrove Intelligence");
+            }
+        }
+        catch (SyncUnauthorizedException)
+        {
+            bool current;
+            lock (_keysGate) current = epoch == _keysEpoch;
+            if (!current) return;
+            // The same end as a sync run meeting a 401, which may never happen with sync switched off.
+            Log.Warn("keys: the server no longer accepts this PC's sign-in; sign in again");
+            _account.Clear();
+            ForgetKeys();
+            _problem = "Sign in again: Sidgrove Intelligence no longer recognises this PC.";
+            Raise();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Shutting down.
+        }
+#pragma warning disable CA1031 // Runs on its own with nobody awaiting it: nothing may escape, and the stored keys stay.
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            // The type and status only: the message of a parsing failure could quote the reply.
+            var status = e is HttpRequestException { StatusCode: { } code } ? $" {(int)code}" : string.Empty;
+            Log.Warn($"keys: could not be fetched, keeping the ones already here and trying again shortly:{e.GetType().Name}{status}");
+            lock (_keysGate)
+            {
+                // Sooner than a full interval, but not on every run: a run follows most dictations.
+                if (epoch == _keysEpoch) _keysDueAt = Now + (KeyRetryInterval < KeyRefreshInterval ? KeyRetryInterval : KeyRefreshInterval);
+            }
+        }
+    }
+
+    /// <summary>Drops the stored keys and anything still on its way, for sign-out and a refused token.</summary>
+    private void ForgetKeys()
+    {
+        lock (_keysGate)
+        {
+            _keysEpoch++;
+            _keysDueAt = DateTimeOffset.MinValue;
+            Keys?.Clear();
+        }
+    }
+
     private void Raise() => StatusChanged?.Invoke(this, EventArgs.Empty);
 
     /// <inheritdoc />
@@ -350,6 +467,9 @@ public sealed class SyncService : IAsyncDisposable
                 // Expected.
             }
         }
+        Task keysFetch;
+        lock (_keysGate) keysFetch = _keysFetch;
+        await keysFetch.ConfigureAwait(false);
         _stop.Dispose();
         _wake.Dispose();
         // _gate is left undisposed: a SyncNowAsync started by the UI may still be releasing it.

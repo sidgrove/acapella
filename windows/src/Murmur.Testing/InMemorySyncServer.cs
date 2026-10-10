@@ -14,11 +14,12 @@ namespace Murmur.Testing;
 /// does, so a client that hashes the bytes it was sent rather than its own canonical form
 /// shows up as an endless push loop in tests rather than in production.
 /// </remarks>
-public sealed class InMemorySyncServer : ISyncServer
+public sealed class InMemorySyncServer : ISyncServer, IManagedKeyServer
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<(string Kind, string Key), Row> _rows = [];
     private long _sequence;
+    private int _keyFetches;
 
     /// <summary>The most rows one reply carries.</summary>
     public int PageSize { get; set; } = 500;
@@ -34,6 +35,15 @@ public sealed class InMemorySyncServer : ISyncServer
 
     /// <summary>Whether the token was revoked.</summary>
     public bool Revoked { get; private set; }
+
+    /// <summary>The managed keys handed to a signed-in PC; null plays an older server without the route.</summary>
+    public ManagedKeySet? Keys { get; set; }
+
+    /// <summary>How many times the keys were asked for.</summary>
+    public int KeyFetches => Volatile.Read(ref _keyFetches);
+
+    /// <summary>When set, a keys call throws this instead of answering; sync calls are unaffected.</summary>
+    public Func<Exception>? FailKeys { get; set; }
 
     /// <summary>When set, every call throws this instead of answering.</summary>
     public Func<Exception>? Fail { get; set; }
@@ -117,6 +127,14 @@ public sealed class InMemorySyncServer : ISyncServer
         if (Fail is { } fail) throw fail();
         Revoked = true;
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task<ManagedKeySet?> KeysAsync(CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _keyFetches);
+        if (FailKeys is { } failKeys) throw failKeys();
+        return Task.FromResult(Keys);
     }
 
     private static JsonElement? Reorder(JsonElement? data)

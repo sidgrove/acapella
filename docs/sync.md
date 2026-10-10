@@ -66,6 +66,47 @@ Reply:
 * `download` returns `{"url"}` (valid 5 minutes) to `GET`; 404 when there is no file.
 * WAVs are at most 50 MB.
 
+## Keys
+
+Dave keeps every AI provider key in Sidgrove Intelligence. A signed-in PC is handed them and
+keeps its own encrypted copy, so a dictation never waits on the server for a key.
+
+`GET /api/acapella/keys` with the bearer token. Reply:
+
+```json
+{ "keys": { "gemini": "...", "elevenLabs": "...", "anthropic": null, "aiGateway": "..." } }
+```
+
+* A `null` means the server holds no such key. Properties the app does not know are ignored.
+* 401 is the same as on every other route: signed out, so the token and the stored keys go.
+* 404 is an older server without the route: no managed keys, said in the log and not to
+  the user. Keys already stored are left as they are.
+* Any other failure is a warning in the log; the stored keys stay in use and the app asks
+  again a few minutes later.
+
+The app asks straight after a sign-in, once at start-up when already signed in, and then at
+most once every 12 hours, beside a sync run and never inside one. Being signed in is enough;
+sync need not be switched on. Sign-out deletes the stored keys.
+
+They live in `managed-keys.bin` in the data folder, encrypted with DPAPI for this Windows
+user like the device token, never in `settings.json` and never in the log (which only says
+how many of the four arrived). A reply replaces all four, so a key removed on the server is
+removed here at the next refresh.
+
+Which key a call uses, decided afresh on every call so a new key needs no restart:
+
+1. the key typed into Settings on this PC, if there is one;
+2. otherwise the key from Sidgrove Intelligence;
+3. otherwise the environment variable on this PC (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`,
+   `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`).
+
+| Reply property | Used for | Settings field it sits behind |
+|---|---|---|
+| `gemini` | AI clean-up, and cloud hearing when Gemini is the provider | Gemini API key |
+| `elevenLabs` | "Also hear me in the cloud" | none in Settings (`ElevenLabsApiKey` in the file) |
+| `anthropic` | AI clean-up with a Claude model | Anthropic API key |
+| `aiGateway` | Jev decisions | Vercel AI Gateway key |
+
 ## What syncs and how (app side)
 
 | Kind | Key | Data | Notes |
