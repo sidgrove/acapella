@@ -14,19 +14,23 @@ namespace Murmur.AppTests;
 public sealed class ResponsiveLayoutTests
 {
     [AvaloniaFact]
-    public void Settings_keeps_the_recording_toggle_in_the_main_window()
+    public void The_status_card_stands_on_Dictations_and_leaves_the_other_sections()
     {
+        // It was the same card above all three sections (audit of 10/10/2026); it is Dictations'
+        // own answer, so Settings and Dictionary get its height back.
         var window = new MainWindow();
         try
         {
             window.Show();
             window.UpdateLayout();
             var toggle = window.GetVisualDescendants().OfType<Murmur.App.Controls.Switch>().Single();
+            toggle.IsEffectivelyVisible.ShouldBeTrue();
             window.ShowSettings();
             window.UpdateLayout();
-            window.GetVisualDescendants().ShouldContain(toggle);
-            toggle.IsEffectivelyVisible.ShouldBeTrue();
-            toggle.Bounds.Height.ShouldBeGreaterThan(0);
+            toggle.IsEffectivelyVisible.ShouldBeFalse("the card is not repeated on Settings");
+            window.GetVisualDescendants().OfType<NavLink>().Single(l => l.Text == "Dictations").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            toggle.IsEffectivelyVisible.ShouldBeTrue("and it is back with its page");
         }
         finally { window.Close(); }
     }

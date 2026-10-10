@@ -97,6 +97,18 @@ public static class Tokens
         /// <summary>The plum tile hue the Bible lists for hubs. <c>--purple</c>.</summary>
         public static Accent Plum { get; } = Make(0xF3E3EE, 0xD8B8CC, 0x7A3D6F);
 
+        /// <summary>
+        /// A section's own mark on the title row, brand: a fill deep enough to read on the section
+        /// button's resting bed. <c>MODULE_HUES.brand</c>, <c>lib/brand/module-identity.ts</c>.
+        /// </summary>
+        public static Accent MarkBrand { get; } = Make(0xE4E6F2, 0xE4E6F2, 0x3D4785);
+
+        /// <summary>A section's own mark, green. <c>MODULE_HUES.green</c>.</summary>
+        public static Accent MarkGreen { get; } = Make(0xE0ECE1, 0xE0ECE1, 0x3F7D4D);
+
+        /// <summary>A section's own mark, purple. <c>MODULE_HUES.purple</c>, its fill a shade deeper so it reads on the bed.</summary>
+        public static Accent MarkPurple { get; } = Make(0xE9E0F4, 0xE9E0F4, 0x7C5DAB);
+
         /// <summary>The tile hues a set of unrelated things cycles through, so each gets its own.</summary>
         public static IReadOnlyList<Accent> Cycle { get; } = [Brand, Emerald, Amber, Info, Plum, Coral, Slate];
 
@@ -324,6 +336,20 @@ public static class Tokens
         /// <summary>The segmented control's bed.</summary>
         public static IBrush ToggleBed { get; } = new SolidColorBrush(Colors.ToggleBed);
 
+        /// <summary>
+        /// A section button at rest: fill only, no outline. The web's is <c>#f6f7fb</c>, two points off
+        /// this app's <c>#f4f5f9</c> canvas, where the unchosen sections read as words on nothing
+        /// (audit of 10/10/2026); the house bed <c>#eef0f7</c> holds them, and the chosen one's white
+        /// still stands clear of it.
+        /// </summary>
+        public static IBrush SectionRest { get; } = new SolidColorBrush(Colors.ToggleBed);
+
+        /// <summary>The key focus halo, app-wide. <c>app/globals.css</c>: <c>0 0 0 2px rgba(104,116,180,0.28)</c>.</summary>
+        public static IBrush FocusHalo { get; } = new SolidColorBrush(Colors.Brand, Opacity.FocusHalo);
+
+        /// <summary>The hairline between folded rows. <c>DisclosureRow.tsx</c>: <c>#eef0f6</c>.</summary>
+        public static IBrush RowLine { get; } = new SolidColorBrush(Color.FromRgb(0xEE, 0xF0, 0xF6));
+
         /// <summary>Column headers and group labels.</summary>
         public static IBrush ColHeader { get; } = new SolidColorBrush(Colors.ColHeader);
 
@@ -406,6 +432,12 @@ public static class Tokens
 
         /// <summary>Focused field ring, brand at 10%.</summary>
         public const double FocusRing = 0.10;
+
+        /// <summary>The key focus halo, brand at 28%.</summary>
+        public const double FocusHalo = 0.28;
+
+        /// <summary>A section's mark while its section is not the current one. <c>SectionMark</c>: 80%.</summary>
+        public const double MarkResting = 0.8;
 
         /// <summary>Destructive button fill, rose at 10%.</summary>
         public const double Destructive = 0.10;
@@ -646,6 +678,9 @@ public static class Tokens
 
         /// <summary>Focus ring width. <c>0 0 0 3px</c>.</summary>
         public const double Ring = 3;
+
+        /// <summary>The key focus halo's width.</summary>
+        public const double FocusHalo = 2;
     }
 
     /// <summary>The shadows, each copied from its CSS declaration.</summary>
@@ -700,6 +735,9 @@ public static class Tokens
         public static BoxShadows Thumb => new(
             new BoxShadow { Spread = 0.5, Color = Color.FromArgb(0x14, 0x3D, 0x47, 0x85) },
             [Layer(1, 2, 0x3D4785, 0.10), Layer(3, 8, 0x3D4785, 0.08)]);
+
+        /// <summary>The chosen section button. <c>SECTION_BUTTON_ON</c>: <c>0 1px 2px rgba(15,23,42,0.06)</c>.</summary>
+        public static BoxShadows Section => new(Layer(1, 2, 0x0F172A, 0.06));
 
         /// <summary>No shadow.</summary>
         public static BoxShadows None => default;
@@ -785,6 +823,21 @@ public static class Tokens
 
         /// <summary>A segment inside the track, the track being this plus its inset: 30 in all, slim enough for the title row.</summary>
         public const double SegmentHeight = 24;
+
+        /// <summary>From a section button's left edge to its mark. <c>SECTION_BUTTON</c>: <c>pl-[5px]</c>.</summary>
+        public const double SectionMarkInset = 5;
+
+        /// <summary>The fault chip at its widest: the start of the sentence, the rest in its tooltip.</summary>
+        public const double FaultChipWidth = 280;
+
+        /// <summary>With less room than this beside the title, the fault chip is its mark alone.</summary>
+        public const double FaultChipMinWidth = 150;
+
+        /// <summary>The chevron at the end of a folded row. <c>DisclosureRow.tsx</c>: <c>size-4</c>.</summary>
+        public const double Chevron = 16;
+
+        /// <summary>A folded row's air above and below its line. <c>DisclosureRow.tsx</c>: <c>py-3</c>, less the tile's own height.</summary>
+        public const double DisclosurePadY = 10;
 
         /// <summary>A section tab in the masthead: words on the page, the current one underlined.</summary>
         public const double TabHeight = 34;

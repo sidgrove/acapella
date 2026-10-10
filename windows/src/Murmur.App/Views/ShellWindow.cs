@@ -42,6 +42,13 @@ public abstract class ShellWindow : Window
         Resources["ScrollBarThumbFillPointerOver"] = Tokens.Brushes.Brand;
         Resources["ScrollBarThumbFillPressed"] = Tokens.Brushes.BrandStrong;
 
+        // Key focus is the soft brand halo on every button, switch and toggle, never the theme's
+        // hard black box (the Bible, UI-CONTRACT: one focus ring, app-wide).
+        Styles.Add(new Avalonia.Styling.Style(x => Avalonia.Styling.Selectors.Is<Button>(x))
+        {
+            Setters = { new Avalonia.Styling.Setter(FocusAdornerProperty, FocusHalo.For(Tokens.Radius.Button)) },
+        });
+
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key != Key.Space || e.KeyModifiers != KeyModifiers.Alt) return;

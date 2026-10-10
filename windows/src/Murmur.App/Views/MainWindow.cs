@@ -41,8 +41,13 @@ public sealed class MainWindow : ShellWindow
     private SettingsView? _settingsView;
     private readonly ContentControl _sectionHost;
     private readonly Border _toolsHost = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Border _fault;
-    private readonly TextBlock _faultText;
+    // One fault, two places it can stand: on the status card's own line while Dictations is the
+    // page, and beside the title on the other two sections, where the card is not shown.
+    private readonly FaultChip _faultOnCard = new() { Margin = new Thickness(Tokens.Space.Snug, 0, 0, 0) };
+    private readonly FaultChip _faultOnTitle = new() { HorizontalAlignment = HorizontalAlignment.Left };
+    private string? _faultMessage;
+    private Border? _status;
+    private bool _onDictations = true;
     private readonly DispatcherTimer _poll;
     private readonly OverlayWindow? _overlay;
     private Controls.Switch? _enabled;
@@ -94,9 +99,9 @@ public sealed class MainWindow : ShellWindow
         _preview.TextWrapping = TextWrapping.Wrap;
         _preview.IsVisible = false;
 
-        _transcriptionsLink = new NavLink("Dictations", Icons.Mic, Tokens.Accent.Brand) { IsActive = true };
-        _dictionaryLink = new NavLink("Dictionary", Icons.Book, Tokens.Accent.Emerald);
-        _settingsLink = new NavLink("Settings", Icons.Sliders, Tokens.Accent.Plum);
+        _transcriptionsLink = new NavLink("Dictations", Icons.Mic, Tokens.Accent.MarkBrand) { IsActive = true };
+        _dictionaryLink = new NavLink("Dictionary", Icons.Book, Tokens.Accent.MarkGreen);
+        _settingsLink = new NavLink("Settings", Icons.Sliders, Tokens.Accent.MarkPurple);
         _transcriptionsLink.Click += (_, _) => ShowSection(transcriptions: true);
         _dictionaryLink.Click += (_, _) => ShowSection(transcriptions: false);
         _settingsLink.Click += (_, _) => ShowSettings();
@@ -111,10 +116,8 @@ public sealed class MainWindow : ShellWindow
             Count();
         }
 
-        _faultText = Text.Body(string.Empty);
-        _faultText.Foreground = Tokens.Accent.Coral.Ink;
-        _faultText.VerticalAlignment = VerticalAlignment.Center;
-        _fault = BuildFault();
+        _faultOnCard.Click += (_, _) => DismissFault();
+        _faultOnTitle.Click += (_, _) => DismissFault();
 
         _sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
 
@@ -262,7 +265,8 @@ public sealed class MainWindow : ShellWindow
     {
         var body = new DockPanel { ClipToBounds = false };
         body.Children.Add(Panels.Docked(BuildMasthead(), Dock.Top));
-        body.Children.Add(Panels.Docked(BuildStatus(), Dock.Top));
+        _status = BuildStatus();
+        body.Children.Add(Panels.Docked(_status, Dock.Top));
         body.Children.Add(_sectionHost);
         return new Border { Child = body, MaxWidth = Tokens.Layout.MainContentMaxWidth, HorizontalAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Roomy) };
     }
@@ -282,11 +286,16 @@ public sealed class MainWindow : ShellWindow
         };
         tabs.Margin = new Thickness(Tokens.Space.Wide, Tokens.Space.Tight, 0, 0);
         _toolsHost.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Tight, 0, 0);
+        // A fault raised while the status card is off the page (Dictionary, Settings) stands here,
+        // in the air between the sections and the tools, so it is never out of sight.
+        _faultOnTitle.Margin = new Thickness(Tokens.Space.Base, Tokens.Space.Tight, 0, 0);
         Grid.SetColumn(tabs, 1);
+        Grid.SetColumn(_faultOnTitle, 2);
         Grid.SetColumn(_toolsHost, 3);
         row.Children.Add(_title);
         row.Children.Add(_toolsHost);
         row.Children.Add(tabs);
+        row.Children.Add(_faultOnTitle);
         // A narrow window takes the title down a size rather than cutting it short.
         row.SizeChanged += (_, e) =>
         {
@@ -303,8 +312,13 @@ public sealed class MainWindow : ShellWindow
         {
             if (row.Bounds.Width <= 0) return;
             if (!links[0].IsCompact) tabsFull = tabs.DesiredSize.Width;
-            var wanted = _title.DesiredSize.Width + tabsFull + _toolsHost.DesiredSize.Width;
+            // A fault beside the title needs at least its mark's room, and gives up its words
+            // before anything on the row is cut.
+            var fault = _faultOnTitle.IsVisible ? Tokens.Layout.ChipHeight + Tokens.Space.Base : 0;
+            var wanted = _title.DesiredSize.Width + tabsFull + _toolsHost.DesiredSize.Width + fault;
             var compact = wanted > row.Bounds.Width;
+            var room = row.Bounds.Width - _title.DesiredSize.Width - tabs.DesiredSize.Width - _toolsHost.DesiredSize.Width;
+            _faultOnTitle.IsBare = room < Tokens.Layout.FaultChipMinWidth;
             if (compact == links[0].IsCompact) return;
             foreach (var link in links) link.IsCompact = compact;
         };
@@ -324,7 +338,7 @@ public sealed class MainWindow : ShellWindow
     /// The status card, one line: a tile whose hue is the state, the state in words, the
     /// shortcut as keycaps, the voice bars and the switch. The bars are always there, breathing
     /// faintly at rest and rising with the voice, so the card is alive before anyone speaks; a
-    /// fault is one coral line inside it, never a banner of its own.
+    /// fault is one small coral chip on the line itself, never a bar under it.
     /// </summary>
     private Border BuildStatus()
     {
@@ -335,7 +349,7 @@ public sealed class MainWindow : ShellWindow
 
         var stateLine = Panels.Row(Tokens.Space.Snug, _stateTitle, _counter);
         _shortcut.Margin = new Thickness(Tokens.Space.Snug, 0, 0, 0);
-        var words = Panels.Row(Tokens.Space.Snug, stateLine, _shortcut, BuildModeChip());
+        var words = Panels.Row(Tokens.Space.Snug, stateLine, _shortcut, BuildModeChip(), _faultOnCard);
         words.MinHeight = Tokens.Layout.TileLead;
 
         // The bars' place holds one thing at a time: the bars, or the loader's dots while the words
@@ -349,34 +363,37 @@ public sealed class MainWindow : ShellWindow
         top.Children.Add(Panels.Row(Tokens.Space.Base, _stateTile, words));
 
         _preview.Margin = new Thickness(Tokens.Layout.TileLead + Tokens.Space.Base, Tokens.Space.Snug, 0, 0);
-        var card = Card.Standard(Panels.Column(0, top, _preview, _fault), Tokens.Space.Roomy);
+        var card = Card.Standard(Panels.Column(0, top, _preview), Tokens.Space.Roomy);
         card.Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Base, Tokens.Space.Wide, Tokens.Space.Base);
-        // Narrow, the resting waveform gives way so the state, the key and the mode never crowd.
-        card.SizeChanged += (_, e) => meter.Opacity = e.NewSize.Width < Tokens.Layout.StatusBarsBelow ? 0 : 1;
+        // Narrow, the resting waveform gives way so the state, the key and the mode never crowd,
+        // and a fault keeps its mark and gives up its words (they stay in its tooltip).
+        card.SizeChanged += (_, e) =>
+        {
+            var narrow = e.NewSize.Width < Tokens.Layout.StatusBarsBelow;
+            meter.Opacity = narrow ? 0 : 1;
+            _faultOnCard.IsBare = narrow;
+        };
         card.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Roomy);
         return card;
     }
 
-    private Border BuildFault()
+    /// <summary>
+    /// Which section is on the page. The status card is Dictations' own answer and stands only
+    /// there (it was the same card above all three sections; audit of 10/10/2026); a fault moves
+    /// to the title row on the other two, so it is in view wherever the user is.
+    /// </summary>
+    private void SetPage(bool dictations)
     {
-        var dismiss = new SgButton("Dismiss", SgButton.Kind.Quiet, compact: true);
-        dismiss.Click += (_, _) => _fault.IsVisible = false;
+        _onDictations = dictations;
+        if (_status is not null) _status.IsVisible = dictations;
+        PlaceFault();
+    }
 
-        var line = new DockPanel();
-        DockPanel.SetDock(dismiss, Dock.Right);
-        line.Children.Add(dismiss);
-        line.Children.Add(Panels.Row(Tokens.Space.Snug, new Glyph(Icons.Alert, 15, Tokens.Accent.Coral.Ink), _faultText));
-        var notice = new Border
-        {
-            Background = Tokens.Accent.Coral.Fill,
-            CornerRadius = new CornerRadius(Tokens.Radius.Button),
-            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Tight, Tokens.Space.Tight, Tokens.Space.Tight),
-            Margin = new Thickness(0, Tokens.Space.Base, 0, Tokens.Space.Tight),
-            Child = line,
-            IsVisible = false,
-        };
-        _faultText.TextWrapping = TextWrapping.Wrap;
-        return notice;
+    private void PlaceFault()
+    {
+        var showing = _faultMessage is not null;
+        _faultOnCard.IsVisible = showing && _onDictations;
+        _faultOnTitle.IsVisible = showing && !_onDictations;
     }
 
     private void BindShortcuts()
@@ -400,6 +417,7 @@ public sealed class MainWindow : ShellWindow
     private void ShowSection(bool transcriptions)
     {
         _settingsLink.IsActive = false;
+        SetPage(transcriptions);
         RefreshHint();
         _transcriptionsLink.IsActive = transcriptions;
         _dictionaryLink.IsActive = !transcriptions;
@@ -442,9 +460,10 @@ public sealed class MainWindow : ShellWindow
         await Clipboard.SetTextAsync(records[0].Text).ConfigureAwait(true);
     }
 
-    /// <summary>Shows settings beneath the persistent recording controls.</summary>
+    /// <summary>Shows settings.</summary>
     public void ShowSettings()
     {
+        SetPage(dictations: false);
         _transcriptionsLink.IsActive = false;
         _dictionaryLink.IsActive = false;
         _settingsLink.IsActive = true;
@@ -467,8 +486,17 @@ public sealed class MainWindow : ShellWindow
 
     private void ShowFault(string message)
     {
-        _faultText.Text = message;
-        _fault.IsVisible = true;
+        _faultMessage = message;
+        _faultOnCard.Message = message;
+        _faultOnTitle.Message = message;
+        PlaceFault();
+    }
+
+    /// <summary>Clears the fault, as pressing its chip does.</summary>
+    public void DismissFault()
+    {
+        _faultMessage = null;
+        PlaceFault();
     }
 
     private static void OpenPath(string? path)
@@ -646,7 +674,7 @@ public sealed class MainWindow : ShellWindow
     public LevelBars Bars => _bars;
 
     /// <summary>The fault notice. Exposed for headless tests.</summary>
-    public Border FaultNotice => _fault;
+    public FaultChip FaultNotice => _onDictations ? _faultOnCard : _faultOnTitle;
 
     /// <summary>Shows a fault. Exposed for headless tests.</summary>
     public void ReportFault(string message) => ShowFault(message);

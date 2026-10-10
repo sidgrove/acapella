@@ -29,7 +29,11 @@ public sealed class SettingsView : UserControl
     public event EventHandler? ModelChanged;
 
     /// <summary>Re-reads the model status, after the engine has loaded or failed to load it.</summary>
-    public void RefreshModel() => _model.Refresh();
+    public void RefreshModel()
+    {
+        _model.Refresh();
+        RefreshSummaries();
+    }
 
     /// <summary>Writes any edit still waiting on its debounce. Call before the app quits.</summary>
     public void Flush()
@@ -92,21 +96,81 @@ public sealed class SettingsView : UserControl
         _model = new ModelPart(composition);
         _model.ModelChanged += (_, _) => ModelChanged?.Invoke(this, EventArgs.Empty);
 
-        var body = Panels.Column(Tokens.Space.Wide,
-            Panels.SettingsCard(Icons.Keyboard, Tokens.Accent.Brand, "Push to talk", "Which key starts a dictation and whether you hold it or tap it.", new KeyPart(composition)),
-            Panels.SettingsCard(Icons.Mic, Tokens.Accent.Crimson, "Microphone", "Applies from the next recording.", BuildMicrophoneSection()),
-            Panels.SettingsCard(Icons.Volume, Tokens.Accent.Amber, "Sounds", "Short cues through your default speakers or headphones.", BuildSoundsSection()),
-            Panels.SettingsCard(Icons.Cpu, Tokens.Accent.Info, "Hearing you", "The speech model runs on this machine. With the cloud on as well, it draws the live preview and types whenever the cloud fails.", BuildHearingSection()),
-            Panels.SettingsCard(Icons.Pen, Tokens.Accent.Emerald, "Writing", "Rules applied on this machine, before anything else sees the text.", BuildWritingSection()),
-            Panels.SettingsCard(Icons.Send, Tokens.Accent.Coral, "Sending", "Say a word at the end and Acapella presses Enter for you once the text is in.", BuildSendingSection()),
-            Panels.SettingsCard(Icons.Sparkles, Tokens.Accent.Plum, "AI clean-up", "Gemini tidies the words before they're typed, without changing what you meant.", BuildAiSection()),
-            Panels.SettingsCard(Icons.Learn, Tokens.Accent.Brand, "Learning from you", "Acapella watches what you change after it types, to measure itself and to learn your words.", BuildLearningSection()),
-            Panels.SettingsCard(Icons.Zap, Tokens.Accent.Info, "Jev decisions", "TypeSafe's Jev answers small yes or no questions in about a tenth of a second: was that a send command, was that fix a mishearing, what kind of writing is this app for. Nothing you're waiting on waits for it. With no key from anywhere it is switched off.", BuildJevSection()),
-            Panels.SettingsCard(Icons.Cloud, Tokens.Accent.Emerald, "Sync", "Keeps your dictionary, learnt fixes, history, settings and corrected recordings the same on each of your PCs, through Sidgrove Intelligence. The microphone, model folder and push-to-talk key stay as each PC has them.", new SyncPart(composition.Sync)),
-            Panels.SettingsCard(Icons.Toggle, Tokens.Accent.Slate, "Behaviour", null, BuildBehaviourSection()));
-        body.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Section);
+        // One card of folded rows (Dave's pick from the audit of 10/10/2026): each section is a line
+        // that says what it is set to and opens in place. It was eleven open cards in one long
+        // scroll. Every setting is where it was, inside its section; nothing was removed.
+        var rows = new StackPanel();
+        void Add(string icon, Tokens.Accent accent, string title, string? tip, Control section, Func<SettingsSummary.Line> says)
+        {
+            var row = new DisclosureRow(icon, accent, title, tip, section, first: rows.Children.Count == 0);
+            _rows.Add((row, says));
+            rows.Children.Add(row);
+        }
 
-        Content = new ScrollViewer { Content = body, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        Add(Icons.Keyboard, Tokens.Accent.Brand, "Push to talk", "Which key starts a dictation and whether you hold it or tap it.", new KeyPart(composition),
+            () => SettingsSummary.PushToTalk(_settings.Data));
+        Add(Icons.Mic, Tokens.Accent.Crimson, "Microphone", "Applies from the next recording.", BuildMicrophoneSection(),
+            () => SettingsSummary.Microphone(_settings.Data, _composition.Devices?.ListCaptureDevices()));
+        Add(Icons.Volume, Tokens.Accent.Amber, "Sounds", "Short cues through your default speakers or headphones.", BuildSoundsSection(),
+            () => SettingsSummary.Sounds(_settings.Data));
+        Add(Icons.Cpu, Tokens.Accent.Info, "Hearing you", "The speech model runs on this machine. With the cloud on as well, it draws the live preview and types whenever the cloud fails.", BuildHearingSection(),
+            () => SettingsSummary.Hearing(_settings.Data, ModelPart.IsInstalled, _composition.Transcriber?.IsReady == true, _model.IsDownloading, ElevenLabsTranscriber.ResolveKey(_composition.Keys.ElevenLabs()) is not null));
+        Add(Icons.Pen, Tokens.Accent.Emerald, "Writing", "Rules applied on this machine, before anything else sees the text.", BuildWritingSection(),
+            () => SettingsSummary.Writing(_settings.Data));
+        Add(Icons.Send, Tokens.Accent.Coral, "Sending", "Say a word at the end and Acapella presses Enter for you once the text is in.", BuildSendingSection(),
+            () => SettingsSummary.Sending(_settings.Data));
+        Add(Icons.Sparkles, Tokens.Accent.Plum, "AI clean-up", "Gemini tidies the words before they're typed, without changing what you meant.", BuildAiSection(),
+            () => SettingsSummary.CleanUp(_settings.Data, GeminiCleaner.ResolveKey(_composition.Keys.Gemini()) is not null, ClaudeCleaner.ResolveKey(_composition.Keys.Anthropic()) is not null));
+        Add(Icons.Learn, Tokens.Accent.Brand, "Learning from you", "Acapella watches what you change after it types, to measure itself and to learn your words.", BuildLearningSection(),
+            () => SettingsSummary.Learning(_settings.Data));
+        Add(Icons.Zap, Tokens.Accent.Info, "Jev decisions", "TypeSafe's Jev answers small yes or no questions in about a tenth of a second: was that a send command, was that fix a mishearing, what kind of writing is this app for. Nothing you're waiting on waits for it. With no key from anywhere it is switched off.", BuildJevSection(),
+            () => SettingsSummary.Jev(JevClient.ResolveKey(_composition.Keys.Jev()) is not null));
+        Add(Icons.Cloud, Tokens.Accent.Emerald, "Sync", "Keeps your dictionary, learnt fixes, history, settings and corrected recordings the same on each of your PCs, through Sidgrove Intelligence. The microphone, model folder and push-to-talk key stay as each PC has them.", new SyncPart(composition.Sync),
+            () => SettingsSummary.Sync(_composition.Sync?.Status, DateTimeOffset.Now));
+        Add(Icons.Toggle, Tokens.Accent.Slate, "Behaviour", null, BuildBehaviourSection(),
+            () => SettingsSummary.Behaviour(_settings.Data, _composition.Startup?.IsEnabled));
+
+        var card = Card.Standard(rows);
+        card.Padding = new Thickness(Tokens.Space.Card, Tokens.Space.Chip);
+        card.Margin = new Thickness(Tokens.Layout.ScrollGutter * 2, 0, Tokens.Layout.ScrollGutter * 2, Tokens.Space.Section);
+
+        Content = new ScrollViewer { Content = card, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+
+        // The lines are read again whenever anything they are worked out from can have moved: a
+        // setting, the sync state, the model, and on a slow tick for a microphone plugged in or
+        // "synced 3 minutes ago" growing older.
+        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(RefreshSummaries);
+        _model.ModelChanged += (_, _) => RefreshSummaries();
+        var tick = new DispatcherTimer { Interval = Tokens.Motion.RelativeTimeTick };
+        tick.Tick += (_, _) => RefreshSummaries();
+        void OnSync(object? sender, EventArgs e) => Dispatcher.UIThread.Post(RefreshSummaries);
+        AttachedToVisualTree += (_, _) =>
+        {
+            if (_composition.Sync is { } sync) sync.StatusChanged += OnSync;
+            tick.Start();
+            RefreshSummaries();
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            if (_composition.Sync is { } sync) sync.StatusChanged -= OnSync;
+            tick.Stop();
+        };
+        RefreshSummaries();
+    }
+
+    private readonly List<(DisclosureRow Row, Func<SettingsSummary.Line> Says)> _rows = [];
+
+    /// <summary>The folded rows, one a section, in order. Exposed for headless tests.</summary>
+    public IReadOnlyList<DisclosureRow> Rows => [.. _rows.Select(r => r.Row)];
+
+    /// <summary>Works every row's line out again from the settings as they now stand.</summary>
+    public void RefreshSummaries()
+    {
+        foreach (var (row, says) in _rows)
+        {
+            var line = says();
+            if (row.Summary != line.Text || row.HasProblem != line.Problem) row.Say(line.Text, line.Problem);
+        }
     }
 
     private StackPanel BuildMicrophoneSection()
