@@ -147,11 +147,14 @@ public sealed class EditLearnerTests : IDisposable
     private bool Has(string hear, string write) =>
         _dictionary.Entries.Any(e => e.Kind == EntryKind.Correction && e.Hear == hear && e.Write == write);
 
+    /// <summary>A history in which every phrase turns up once, the fix's own dictation.</summary>
+    private static int Rare(string phrase) => 1;
+
     [Fact]
     public async Task A_fix_the_model_is_sure_was_a_mishearing_is_learnt_at_once()
     {
         var jev = Jev(0.93);
-        var learner = new EditLearner(_dictionary, _suggestions, () => jev, () => true);
+        var learner = new EditLearner(_dictionary, _suggestions, () => jev, () => true, Rare);
 
         await learner.LearnAsync(Edit("run it over the Sarif headings", "run it over the serif headings"));
 
@@ -160,6 +163,19 @@ public sealed class EditLearnerTests : IDisposable
         var learnt = _suggestions.Learnt.ShouldHaveSingleItem();
         learnt.LearntBecause.ShouldNotBeNull().ShouldContain("Jev");
         jev.Calls.ShouldHaveSingleItem().State.ShouldContain("\"Sarif\" with \"serif\"");
+    }
+
+    [Fact]
+    public async Task A_sure_fix_to_a_word_said_often_still_waits_for_a_second_fix()
+    {
+        // 12/10/2026: one edit at Jev 0.86 learnt "git -> gift", a word in 22 dictations.
+        var history = Enumerable.Range(0, 22).Select(i => $"git pull number {i}").ToArray();
+        var learner = new EditLearner(_dictionary, _suggestions, () => Jev(0.86), () => true, p => EditLearner.TimesSaid(history, p));
+
+        await learner.LearnAsync(Edit("the live reporting in what git", "the live reporting in what gift"));
+
+        _dictionary.Entries.ShouldBeEmpty();
+        _suggestions.Pending.ShouldHaveSingleItem().Hear.ShouldBe("git");
     }
 
     [Fact]
@@ -201,7 +217,7 @@ public sealed class EditLearnerTests : IDisposable
     [Fact]
     public async Task Undo_takes_it_out_of_the_dictionary_and_it_is_never_learnt_again()
     {
-        var learner = new EditLearner(_dictionary, _suggestions, () => Jev(0.95), () => true);
+        var learner = new EditLearner(_dictionary, _suggestions, () => Jev(0.95), () => true, Rare);
         await learner.LearnAsync(Edit("the Sarif font", "the serif font"));
 
         EditLearner.Undo(_suggestions.Learnt.Single(), _dictionary, _suggestions);
