@@ -115,6 +115,7 @@ public sealed class Composition : IAsyncDisposable
         var managedKeys = new ManagedKeys(ManagedKeys.DefaultPath, PlatformFactory.CreateSecretStore());
         var keys = new ApiKeys(settings, managedKeys);
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
+        RecoverStrandedDictionaries(dictionary);
         var suggestions = new SuggestionStore(SuggestionStore.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
         var archive = new RecordingArchive(RecordingArchive.DefaultFolder);
@@ -328,6 +329,25 @@ public sealed class Composition : IAsyncDisposable
         : string.Equals(settings.Data.CloudTranscriptionProvider, "gemini", StringComparison.OrdinalIgnoreCase)
             ? new GeminiLiveTranscriber(keys.Gemini, settings.Data.CloudTranscriptionModel, settings.Data.BritishSpelling ? "en-GB" : "en-US")
             : new ElevenLabsTranscriber(keys.ElevenLabs, settings.Data.CloudTranscriptionModel);
+
+    /// <summary>
+    /// Adds back entries a copy running in another app's package sandbox wrote there. Not
+    /// from inside a sandbox: there the "stranded" file is this copy's own dictionary.
+    /// </summary>
+    private static void RecoverStrandedDictionaries(DictionaryFile dictionary)
+    {
+        try
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (AppDataRedirect.FindRedirectingPackage(localAppData, AppPaths.Root, $".package-probe-{Environment.ProcessId}") is not null) return;
+            StrandedDictionaries.Recover(localAppData, dictionary, DateTimeOffset.Now);
+        }
+        catch (Exception e)
+        {
+            // Never stop the app starting over this.
+            Log.Warn($"dictionary: stranded copies not checked: {e.Message}");
+        }
+    }
 
     private static ITranscriptCleaner NewCleaner(AppSettings settings, ApiKeys keys, DictionaryFile dictionary) =>
         TranscriptCleaners.Create(settings.Data.GeminiModel, keys.Gemini, keys.Anthropic,
