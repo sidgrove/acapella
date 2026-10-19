@@ -54,6 +54,12 @@ public sealed class EditLearner
     /// </summary>
     public const int RarelySaid = 2;
 
+    /// <summary>
+    /// The most dictations a phrase may appear in for the decision model's say-so to be enough.
+    /// Real mishearings (Gev, Sarif, Quilla) turn up in a handful; git turned up in 22.
+    /// </summary>
+    public const int SeldomSaid = 10;
+
     /// <summary>The decision model's probability of a mishearing above which one fix is enough.</summary>
     public const double SureMishearing = 0.85;
 
@@ -78,7 +84,9 @@ public sealed class EditLearner
                 var suggestion = _suggestions.Offer(hear, write, DictionarySuggestions.Example(edit.Final, write), edit.At);
                 if (suggestion.Dismissed) continue;
 
-                var because = mishearing >= SureMishearing ? "Jev was sure it was a mishearing"
+                // Jev judges the one sentence, not what a rule would do to every other one: a
+                // word said often waits for a second fix however sure it is (git -> gift).
+                var because = mishearing >= SureMishearing && _timesSaid(hear) <= SeldomSaid ? "Jev was sure it was a mishearing"
                     : suggestion.Count >= AddAfter ? $"you made this fix {suggestion.Count} times"
                     : _timesSaid(hear) <= RarelySaid ? "you fixed it and hardly ever say it otherwise"
                     : null;

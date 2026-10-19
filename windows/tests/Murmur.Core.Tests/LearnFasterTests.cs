@@ -98,6 +98,24 @@ public sealed class FirstFixTests : IDisposable
         DictionarySuggestions.IsWorthOffering(hear, write).ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData("Quiller and", "Qwilrand")]
+    [InlineData("UK", "theUK")]
+    [InlineData("What's", "nWhat's")]
+    public void A_word_glued_onto_the_fix_is_not_a_mishearing(string hear, string write)
+    {
+        DictionarySuggestions.IsWorthOffering(hear, write).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("get hub", "GitHub")]
+    [InlineData("Impecca", "Impeccable")]
+    [InlineData("Quiller", "Qwilr")]
+    public void Words_run_together_into_a_name_are_still_mishearings(string hear, string write)
+    {
+        DictionarySuggestions.IsWorthOffering(hear, write).ShouldBeTrue();
+    }
+
     [Fact]
     public void Times_said_counts_whole_words_ignoring_case()
     {

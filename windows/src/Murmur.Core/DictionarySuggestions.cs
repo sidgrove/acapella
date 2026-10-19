@@ -88,6 +88,7 @@ public static class DictionarySuggestions
         // "adjustments"): the right word was heard.
         if (heard == written && !IsCaseOnly(hear, write)) return false;
         if (IsInflection(heard, written) || IsInflection(written, heard)) return false;
+        if (IsGlued(hear, write)) return false;
         return IsCaseOnly(hear, write) || Likeness(heard, written) >= MinimumLikeness;
     }
 
@@ -104,6 +105,25 @@ public static class DictionarySuggestions
         if (start > at) start = at;
         if (end < at + write.Length) end = at + write.Length;
         return (start > 0 ? "…" : string.Empty) + final[start..end].Trim() + (end < final.Length ? "…" : string.Empty);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="write"/> is one of the heard words with a neighbour stuck to it,
+    /// a read-back that lost a space ("theUK", "Qwilrand"), rather than words run into a name
+    /// ("get hub" to "GitHub"). One side of the join is an ordinary word or a lone letter, so
+    /// a cut-off word put right ("Impecca" to "Impeccable") is still offered.
+    /// </summary>
+    private static bool IsGlued(string hear, string write)
+    {
+        if (write.Contains(' ', StringComparison.Ordinal)) return false;
+        var words = hear.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return Stuck(words[^1], write[..Math.Max(0, write.Length - words[^1].Length)], string.Join(' ', words[..^1]), write.EndsWith(words[^1], StringComparison.OrdinalIgnoreCase))
+            || Stuck(words[0], write[Math.Min(write.Length, words[0].Length)..], string.Join(' ', words[1..]), write.StartsWith(words[0], StringComparison.OrdinalIgnoreCase));
+
+        // kept: the heard word found whole in the fix; stuck: the rest of the fix; others: the rest of what was heard.
+        bool Stuck(string kept, string stuck, string others, bool found) =>
+            found && stuck.Length > 0 && Letters(stuck) != Letters(others)
+            && (stuck.Length == 1 || DictionaryWarning.IsOrdinaryWord(stuck) || (others.Length > 0 && DictionaryWarning.IsOrdinaryWord(kept)));
     }
 
     private static bool IsCaseOnly(string hear, string write) =>
