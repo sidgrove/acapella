@@ -190,6 +190,17 @@ lookahead, `\p{L}`, and `$1`–`$9` in replacements. Nothing else.
 
 ---
 
+## Updating the app on one of Dave's computers
+
+Dave runs Acapella on more than one computer and the Windows copies sync with each other, so
+updating one is never only about that one. **Follow `docs/COMPUTERS.md`** whenever he asks
+for the app to be updated or installed anywhere: it lists the computers and the build each
+runs, and holds what is waiting for each. Every reply about an update says which other
+computers now need it and why. And when a change you make will need anything on another
+computer (the same build, a repair, a setting), add it there in the same commit.
+
+---
+
 ## What isn't built
 
 1. **Command Mode** — select text, hold a second key, "make this more formal."
