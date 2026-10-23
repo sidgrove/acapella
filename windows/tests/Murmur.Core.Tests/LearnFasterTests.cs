@@ -108,6 +108,16 @@ public sealed class FirstFixTests : IDisposable
     }
 
     [Theory]
+    [InlineData("connectors", "connectors(Edited")]
+    [InlineData("connectors", "connectorsEdited")]
+    [InlineData("message", "message[edited]")]
+    [InlineData("done", "(edited)done")]
+    public void A_label_from_beside_the_field_is_not_a_mishearing(string hear, string write)
+    {
+        DictionarySuggestions.IsWorthOffering(hear, write).ShouldBeFalse();
+    }
+
+    [Theory]
     [InlineData("get hub", "GitHub")]
     [InlineData("Impecca", "Impeccable")]
     [InlineData("Quiller", "Qwilr")]

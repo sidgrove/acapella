@@ -89,6 +89,7 @@ public static class DictionarySuggestions
         if (heard == written && !IsCaseOnly(hear, write)) return false;
         if (IsInflection(heard, written) || IsInflection(written, heard)) return false;
         if (IsGlued(hear, write)) return false;
+        if (IsLabelled(hear, write)) return false;
         return IsCaseOnly(hear, write) || Likeness(heard, written) >= MinimumLikeness;
     }
 
@@ -124,6 +125,25 @@ public static class DictionarySuggestions
         bool Stuck(string kept, string stuck, string others, bool found) =>
             found && stuck.Length > 0 && Letters(stuck) != Letters(others)
             && (stuck.Length == 1 || DictionaryWarning.IsOrdinaryWord(stuck) || (others.Length > 0 && DictionaryWarning.IsOrdinaryWord(kept)));
+    }
+
+    /// <summary>
+    /// Whether <paramref name="write"/> is the heard words with a label from beside the field
+    /// stuck to one end, past a bracket or other mark ("connectors(Edited") or as a new
+    /// capitalised word ("connectorsEdited"). Slack's "(edited)", read back with the message,
+    /// was learnt as connectors -> connectors(Edited on 12/10/2026.
+    /// </summary>
+    private static bool IsLabelled(string hear, string write)
+    {
+        if (write.Length <= hear.Length) return false;
+        if (write.StartsWith(hear, StringComparison.OrdinalIgnoreCase))
+        {
+            var next = write[hear.Length];
+            if (IsMark(next) || (char.IsUpper(next) && char.IsLower(hear[^1]))) return true;
+        }
+        return write.EndsWith(hear, StringComparison.OrdinalIgnoreCase) && IsMark(write[^(hear.Length + 1)]);
+
+        static bool IsMark(char c) => !char.IsLetterOrDigit(c) && !char.IsWhiteSpace(c) && c is not ('\'' or '’' or '-');
     }
 
     private static bool IsCaseOnly(string hear, string write) =>
