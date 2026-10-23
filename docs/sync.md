@@ -121,3 +121,12 @@ Change detection is by snapshot: `sync-state.json` keeps the cursor and a hash p
 (kind, key) as last synced. Each run builds the current items from the stores, pushes what is
 new or changed (and a tombstone for what has gone), then applies what came back. A pulled
 change whose hash matches what is held locally is ignored.
+
+A PC's first sync (a new install, or signing in again after signing out) pulls everything
+before pushing anything, so a fresh install's defaults cannot overwrite settings the other
+PCs agreed on. Settings are the exception in one direction: a field this PC changed from the
+default keeps its value when the server still holds the default, and is pushed straight
+after. Where both sides chose differently, the server's value stands. A settings row that
+leaves a field out, as an older build would, leaves that field as it is here. Every settings
+field a pull changes is named in the log (API keys and free text by name only), along with
+the PC it came from.

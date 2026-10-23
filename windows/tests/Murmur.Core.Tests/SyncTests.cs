@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Murmur.Abstractions;
 using Murmur.Core;
 using Murmur.Core.Sync;
@@ -273,6 +274,81 @@ public sealed class SyncEngineTests : IDisposable
         b.Settings.Data.SendWord.ShouldBe("send");
         b.Settings.Data.CustomInstructions.ShouldBe("British spellings");
         b.Settings.Data.MicrophoneDeviceId.ShouldBe("b-mic");
+    }
+
+    [Fact]
+    public async Task Signing_in_keeps_a_setting_this_pc_changed_when_the_server_has_the_default()
+    {
+        // 19/10/2026: another PC, where cloud hearing had never been switched on, had pushed
+        // its settings. This PC had it on and signed in later; its first pull switched it off.
+        var laptop = NewPc("laptop");
+        laptop.Settings.Update(laptop.Settings.Data with { SendWord = "send", CustomInstructions = "British spellings" });
+        await laptop.SyncAsync();
+
+        var desk = NewPc("desk", Pc.Start.AddHours(1));
+        desk.Settings.Update(desk.Settings.Data with { CloudTranscription = true, CustomInstructions = "No em dashes" });
+        await desk.SyncAsync();
+
+        desk.Settings.Data.CloudTranscription.ShouldBeTrue();
+        // What this PC had left alone it takes; where both PCs chose, the server's choice stands.
+        desk.Settings.Data.SendWord.ShouldBe("send");
+        desk.Settings.Data.CustomInstructions.ShouldBe("British spellings");
+
+        // And it goes up, so the other PC gets this PC's choice rather than undoing it again.
+        await laptop.SyncAsync();
+        laptop.Settings.Data.CloudTranscription.ShouldBeTrue();
+        (await desk.SyncAsync()).Pushed.ShouldBe(0);
+        desk.Settings.Data.CloudTranscription.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_settings_row_without_a_field_leaves_that_field_as_it_is_here()
+    {
+        var desk = NewPc("desk");
+        desk.Settings.Update(desk.Settings.Data with { CloudTranscription = true });
+        await desk.SyncAsync();
+
+        // A build older than one of the settings sends a row without it.
+        var row = JsonNode.Parse(SyncedSettings.Canonical(desk.Settings.Data with { SendWord = "sent" }))!.AsObject();
+        row.Remove(nameof(SettingsData.CloudTranscription));
+        using var document = JsonDocument.Parse(row.ToJsonString());
+        await _server.SyncAsync(new SyncRequest
+        {
+            Device = "older-build",
+            Changes = [new SyncChange { Kind = SyncKinds.Settings, Key = SyncKinds.SettingsKey, Data = document.RootElement.Clone(), UpdatedAt = Pc.Start.AddHours(1) }],
+        }, CancellationToken.None);
+
+        (await desk.SyncAsync()).Applied.ShouldBe(1);
+        desk.Settings.Data.SendWord.ShouldBe("sent");
+        desk.Settings.Data.CloudTranscription.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_pull_that_changes_a_setting_says_which_in_the_log()
+    {
+        var device = $"logging-{Guid.NewGuid():N}";
+        var a = NewPc(device);
+        var b = NewPc("B");
+        a.Settings.Update(a.Settings.Data with { SendWord = "send" });
+        await a.SyncAsync();
+        await b.SyncAsync();
+
+        a.Settings.Update(a.Settings.Data with { CloudTranscription = true, GeminiApiKey = "key-not-for-the-log" });
+        await a.SyncAsync();
+        await b.SyncAsync();
+
+        var lines = ReadLog().Split('\n').Where(l => l.Contains(device, StringComparison.Ordinal)).ToList();
+        lines.ShouldContain(l => l.Contains("sync: settings from " + device + " changed SendWord", StringComparison.Ordinal));
+        lines.ShouldContain(l => l.Contains("CloudTranscription from off to on", StringComparison.Ordinal) && l.Contains("GeminiApiKey", StringComparison.Ordinal));
+        ReadLog().ShouldNotContain("key-not-for-the-log");
+    }
+
+    private static string ReadLog()
+    {
+        if (!File.Exists(Log.Path)) return string.Empty;
+        using var stream = new FileStream(Log.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     [Fact]

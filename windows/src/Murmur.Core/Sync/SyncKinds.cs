@@ -214,7 +214,7 @@ internal sealed class SettingsKind(AppSettings settings) : ISyncKind
     public IEnumerable<SyncItem> Snapshot() => [new SyncItem(Kind, SyncKinds.SettingsKey, SyncedSettings.Canonical(settings.Data))];
 
     public string? Canonical(string key, JsonElement data) =>
-        key == SyncKinds.SettingsKey && SyncedSettings.Read(data) is { } incoming ? SyncedSettings.Canonical(incoming) : null;
+        key == SyncKinds.SettingsKey && SyncedSettings.Read(data, settings.Data) is { } incoming ? SyncedSettings.Canonical(incoming) : null;
 
     public void Apply(IReadOnlyList<(string Key, string Json)> upserts, IReadOnlyList<string> removals)
     {

@@ -22,7 +22,9 @@ public sealed class SyncState
 
     /// <summary>
     /// Whether the first full pull has been done. Until then a pulled row beats the local
-    /// copy, so a new PC's default settings cannot overwrite the ones every other PC has.
+    /// copy, so a new PC's default settings cannot overwrite the ones every other PC has;
+    /// settings this PC changed from the default are the exception, where the server holds
+    /// the default (<see cref="SyncedSettings.KeepChoicesMadeHere"/>).
     /// </summary>
     public bool Primed { get; set; }
 

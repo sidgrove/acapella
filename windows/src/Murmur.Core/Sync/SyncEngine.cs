@@ -363,7 +363,9 @@ public sealed class SyncEngine
 
     /// <summary>
     /// Applies one page of pulled rows and returns how many changed something. With
-    /// <paramref name="pending"/> null (the first pull) a pulled row always wins.
+    /// <paramref name="pending"/> null (the first pull) a pulled row always wins, except for
+    /// settings this PC changed where the server holds the default. Every settings field a
+    /// pull changes is named in the log.
     /// </summary>
     private int Apply(
         IReadOnlyList<SyncChange> changes, SyncState state, Dictionary<string, SyncItem> local,
@@ -409,7 +411,22 @@ public sealed class SyncEngine
             }
             var item = new SyncItem(change.Kind, change.Key, json);
             state.Items[id] = item.Hash;
+            var isSettings = change.Kind == SyncKinds.Settings;
+            if (isSettings && pending is null && local.TryGetValue(id, out var before))
+            {
+                // The first pull used to take the server's settings whole, which on 19/10/2026
+                // switched cloud hearing off on a PC that had it on, because another PC that
+                // never had it on had pushed first. What was chosen here stays; the state keeps
+                // the server's hash, so the next snapshot sees the difference and pushes it.
+                json = SyncedSettings.KeepChoicesMadeHere(json, before.Json, out var kept);
+                if (kept.Count > 0) Log.Info($"sync: first sync kept this PC's {string.Join(", ", kept)} where the server held the default; sending them up");
+                item = new SyncItem(change.Kind, change.Key, json);
+            }
             if (local.TryGetValue(id, out var held) && held.Hash == item.Hash) continue;
+            if (isSettings && held is not null && SyncedSettings.Describe(held.Json, json) is { Count: > 0 } changed)
+            {
+                Log.Info($"sync: settings from {change.Device ?? "another PC"} changed {string.Join(", ", changed)}");
+            }
             local[id] = item;
 
             if (change.Kind == SyncKinds.Recording)

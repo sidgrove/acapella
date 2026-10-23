@@ -41,20 +41,73 @@ public static class SyncedSettings
     }
 
     /// <summary>
-    /// The settings another PC sent, read leniently: a field it did not send keeps its
-    /// default. Null if <paramref name="data"/> is not a settings object.
+    /// The settings another PC sent, read leniently: a field it did not send, because it runs
+    /// a build older than that setting, keeps <paramref name="here"/>'s value rather than
+    /// falling back to the default. Null if <paramref name="data"/> is not a settings object.
     /// </summary>
-    public static SettingsData? Read(JsonElement data)
+    public static SettingsData? Read(JsonElement data, SettingsData here)
     {
         if (data.ValueKind != JsonValueKind.Object) return null;
         try
         {
-            return data.Deserialize(SyncJsonContext.Default.SettingsData);
+            var node = JsonSerializer.SerializeToNode(here, SyncJsonContext.Default.SettingsData)!.AsObject();
+            foreach (var property in data.EnumerateObject()) node[property.Name] = JsonNode.Parse(property.Value.GetRawText());
+            return node.Deserialize(SyncJsonContext.Default.SettingsData);
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// For a PC's first sync, when nothing has been agreed with the server yet: the server's
+    /// canonical settings, except that a field this PC changed from the default where the
+    /// server still holds the default keeps this PC's value. A fresh install takes everything;
+    /// a PC that has been in use keeps what was chosen on it. Where both chose, the server's
+    /// value stands. <paramref name="kept"/> names the fields kept.
+    /// </summary>
+    public static string KeepChoicesMadeHere(string server, string here, out IReadOnlyList<string> kept)
+    {
+        var result = JsonNode.Parse(server)!.AsObject();
+        var mine = JsonNode.Parse(here)!.AsObject();
+        var defaults = JsonNode.Parse(Defaults)!.AsObject();
+        var names = new List<string>();
+        foreach (var (name, value) in mine)
+        {
+            if (JsonNode.DeepEquals(value, defaults[name]) || !JsonNode.DeepEquals(result[name], defaults[name])) continue;
+            result[name] = value?.DeepClone();
+            names.Add(name);
+        }
+        kept = names;
+        return names.Count == 0 ? server : Canonical(result.Deserialize(SyncJsonContext.Default.SettingsData)!);
+    }
+
+    /// <summary>
+    /// The synced fields that differ between two canonical forms, for the log: on/off and
+    /// numbers with their values, everything else (API keys, free text) by name only.
+    /// </summary>
+    public static IReadOnlyList<string> Describe(string before, string after)
+    {
+        var old = JsonNode.Parse(before)!.AsObject();
+        var changes = new List<string>();
+        foreach (var (name, value) in JsonNode.Parse(after)!.AsObject())
+        {
+            var was = old[name];
+            if (JsonNode.DeepEquals(was, value)) continue;
+            changes.Add(value?.GetValueKind() is JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
+                ? $"{name} from {Show(was)} to {Show(value)}"
+                : name);
+        }
+        return changes;
+
+        static string Show(JsonNode? node) => node?.GetValueKind() switch
+        {
+            JsonValueKind.True => "on",
+            JsonValueKind.False => "off",
+            null or JsonValueKind.Null => "nothing",
+            _ => node.ToJsonString(),
+        };
     }
 
     /// <summary><paramref name="incoming"/>'s synced fields with this PC's own machine fields.</summary>
