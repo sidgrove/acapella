@@ -11,7 +11,7 @@ in the repo and reaches every computer with the code.
 
 | Computer | OS | App | Installed build | Updated |
 |---|---|---|---|---|
-| Sidgrove_9950x | Windows 11 | Windows app, signed in to sync | e4d2e23 | 23/10/2026 |
+| Sidgrove_9950x | Windows 11 | Windows app, signed in to sync | 7c30e09 | 23/10/2026 |
 | Name not known yet: the other PC signed in to sync, seen pushing changes on 20/10/2026 | Windows | Windows app, signed in to sync | not known | not known |
 | Mac | macOS 26 | Mac app, no sync yet | not known | not known |
 
@@ -47,8 +47,9 @@ on another computer, add the entry in the same commit as the change.
 
 Remove an entry once every computer it names has had it.
 
-- **9ec772c, sync keeps settings changed on the PC doing the pulling** (once merged).
-  Needed on: every Windows computer signed in to sync.
+- **9ec772c, sync keeps settings changed on the PC doing the pulling.**
+  Needed on: every Windows computer signed in to sync. Done on Sidgrove_9950x (23/10/2026);
+  still needed on the other PC.
   Why: the fix lives in the copy doing the pulling. A computer on an older build still lets a
   first sync after signing in overwrite settings chosen on it (how cloud hearing went off on
   Sidgrove_9950x on 19/10/2026), and it still logs nothing when a pull changes a setting.
