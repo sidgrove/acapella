@@ -12,6 +12,7 @@ in the repo and reaches every computer with the code.
 | Computer | OS | App | Installed build | Updated |
 |---|---|---|---|---|
 | Sidgrove_9950x | Windows 11 | Windows app, signed in to sync | 7c30e09 | 23/10/2026 |
+| Sidgrove_Razer | Windows 11 | Windows app, not signed in to sync (its previous build, 3e7d572, predated sync) | 822f093 | 25/10/2026 |
 | Name not known yet: the other PC signed in to sync, seen pushing changes on 20/10/2026 | Windows | Windows app, signed in to sync | not known | not known |
 | Mac | macOS 26 | Mac app, no sync yet | not known | not known |
 
